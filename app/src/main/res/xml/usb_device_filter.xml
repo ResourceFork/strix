@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  CH340 clone Arduino Nano:
+    vendor-id  = 6790  (0x1A86)
+    product-id = 29987 (0x7523)
+  This tells Android to offer to launch this app when the Nano is plugged in.
+-->
+<resources>
+    <usb-device vendor-id="6790" product-id="29987" />
+</resources>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Strix RC</string>
+    <string name="usb_permission_denied">USB access denied – the app cannot communicate with the Arduino.</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="arm">Arm</string>
+    <string name="disarm">Disarm</string>
+    <string name="channel_1">Left Motor</string>
+    <string name="channel_2">Right Motor</string>
+    <string name="channel_3">Channel 3</string>
+    <string name="led_color">LED Color</string>
+    <string name="camera_section">Camera / VLM</string>
+    <string name="vlm_api_key_hint">VLM API key</string>
+    <string name="vlm_prompt_hint">VLM prompt (e.g. "What is ahead?")</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_armed">Armed</string>
+    <string name="status_disarmed">Disarmed</string>
+</resources>
