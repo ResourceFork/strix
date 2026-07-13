@@ -54,9 +54,11 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun disconnect() {
-        motorController.disarm()
-        motorController.disconnect()
-        _uiState.update { it.copy(isConnected = false, isArmed = false) }
+        viewModelScope.launch(Dispatchers.IO) {
+            motorController.disarm()
+            motorController.disconnect()
+            _uiState.update { it.copy(isConnected = false, isArmed = false) }
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -102,12 +104,14 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
      * Sets an individual channel throttle directly (e.g. channel 3 for an extra servo).
      */
     fun setChannelThrottle(channel: Int, value: Int) {
+        if (channel !in 1..3) return
+        val clamped = value.coerceIn(-100, 100)
         viewModelScope.launch(Dispatchers.IO) {
-            motorController.setThrottle(channel, value)
+            motorController.setThrottle(channel, clamped)
         }
         _uiState.update { s ->
             val t = s.throttle.copyOf()
-            t[channel - 1] = value.coerceIn(-100, 100)
+            t[channel - 1] = clamped
             s.copy(throttle = t)
         }
     }

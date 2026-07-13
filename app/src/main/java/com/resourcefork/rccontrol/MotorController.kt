@@ -207,7 +207,7 @@ class MotorController(private val context: Context) {
                     if (n > 0) {
                         val chunk = String(buf, 0, n, Charsets.US_ASCII)
                         sb.append(chunk)
-                        if (sb.contains('\n')) return sb.toString().trim()
+                        if (sb.contains('\n')) return sb.toString().substringBefore('\n').trim()
                     }
                 } catch (_: Exception) {
                     return null

@@ -37,9 +37,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.resourcefork.rccontrol.CameraFrameProvider
+import com.resourcefork.rccontrol.R
 import com.resourcefork.rccontrol.RCViewModel
 import com.resourcefork.rccontrol.VlmClient
 
@@ -234,9 +236,9 @@ private fun ConnectionStatusChip(connected: Boolean, armed: Boolean) {
         else      -> Color(0xFF9E9E9E)  // grey
     }
     val label = when {
-        armed     -> "Armed"
-        connected -> "Connected"
-        else      -> "Disconnected"
+        armed     -> stringResource(R.string.status_armed)
+        connected -> stringResource(R.string.status_connected)
+        else      -> stringResource(R.string.status_disconnected)
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,

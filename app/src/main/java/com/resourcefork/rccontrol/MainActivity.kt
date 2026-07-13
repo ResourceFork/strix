@@ -12,6 +12,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.resourcefork.rccontrol.ui.RCControlApp
 import com.resourcefork.rccontrol.ui.theme.StrixTheme
 
@@ -44,7 +45,12 @@ class MainActivity : ComponentActivity() {
             if (intent.action != ACTION_USB_PERMISSION) return
 
             synchronized(this) {
-                val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                val device: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                }
                 val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
 
                 if (granted && device != null) {
@@ -110,6 +116,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(usbPermissionReceiver)
+        cameraFrameProvider?.stop()
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -118,7 +125,11 @@ class MainActivity : ComponentActivity() {
 
     private fun requestUsbPermissionIfNeeded() {
         val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
-        val device = usbManager.deviceList.values.firstOrNull() ?: return // nothing plugged in
+        // Only consider devices recognised by the USB-serial prober (e.g. CH340 Nano).
+        val device = UsbSerialProber.getDefaultProber()
+            .findAllDrivers(usbManager)
+            .firstOrNull()
+            ?.device ?: return // no known serial device attached
 
         if (usbManager.hasPermission(device)) {
             onUsbPermissionGranted()
@@ -140,9 +151,7 @@ class MainActivity : ComponentActivity() {
 
     private fun onUsbPermissionGranted() {
         viewModel.connect()
-        // The ViewModel will arm() once connected – see RCViewModel.connect()
-        // but we keep arm() as an explicit user action so the car doesn't
-        // unexpectedly move on plug-in.
+        // arm() is left as an explicit user action; the car will not move on plug-in.
     }
 
     private fun onUsbPermissionDenied() {

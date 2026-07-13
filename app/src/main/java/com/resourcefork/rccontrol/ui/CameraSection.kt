@@ -36,10 +36,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.resourcefork.rccontrol.R
 
 /**
  * Camera preview + VLM text stream section.
@@ -68,7 +70,8 @@ fun CameraSection(
         onCameraPermissionResult(granted)
     }
 
-    var apiKey by rememberSaveable { mutableStateOf("") }
+    // API keys must not be persisted in saved-instance-state or backups.
+    var apiKey by remember { mutableStateOf("") }
     var prompt by rememberSaveable { mutableStateOf("Describe what you see. What obstacles are ahead?") }
 
     Column(
@@ -80,7 +83,7 @@ fun CameraSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(Icons.Default.Videocam, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text("Camera / VLM", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.camera_section), style = MaterialTheme.typography.titleSmall)
         }
 
         if (!cameraPermissionGranted) {

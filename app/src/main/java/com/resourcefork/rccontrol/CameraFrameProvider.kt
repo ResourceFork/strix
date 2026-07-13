@@ -35,11 +35,13 @@ class CameraFrameProvider(
 
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private var lastFrameMs = 0L
+    private var cameraProvider: ProcessCameraProvider? = null
 
     fun start() {
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             val provider = future.get()
+            cameraProvider = provider
 
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
@@ -63,6 +65,12 @@ class CameraFrameProvider(
         }, ContextCompat.getMainExecutor(context))
     }
 
+    /** Unbinds the camera and shuts down the analysis executor. */
+    fun stop() {
+        cameraProvider?.unbindAll()
+        analysisExecutor.shutdown()
+    }
+
     private fun processFrame(proxy: ImageProxy) {
         try {
             val nowMs = System.currentTimeMillis()
@@ -82,39 +90,54 @@ class CameraFrameProvider(
 
     /**
      * Converts a YUV_420_888 [ImageProxy] to a JPEG [ByteArray].
-     * Uses the NV21-compatible byte layout for fast conversion with Android's
-     * built-in YuvImage.
+     * Correctly handles rowStride and pixelStride padding to produce a valid NV21 buffer.
      */
     private fun yuvToJpeg(proxy: ImageProxy): ByteArray? {
         if (proxy.format != ImageFormat.YUV_420_888) return null
 
-        val yPlane  = proxy.planes[0]
-        val uPlane  = proxy.planes[1]
-        val vPlane  = proxy.planes[2]
+        val width  = proxy.width
+        val height = proxy.height
 
+        val yPlane = proxy.planes[0]
+        val uPlane = proxy.planes[1]
+        val vPlane = proxy.planes[2]
+
+        val yRowStride    = yPlane.rowStride
+        val uvRowStride   = uPlane.rowStride
+        val uvPixelStride = uPlane.pixelStride
+
+        val nv21 = ByteArray(width * height * 3 / 2)
+
+        // Copy Y plane row by row, stripping any row padding
         val yBuf = yPlane.buffer
+        for (row in 0 until height) {
+            yBuf.position(row * yRowStride)
+            yBuf.get(nv21, row * width, width)
+        }
+
+        // Build interleaved VU plane for NV21, respecting pixel and row strides
         val uBuf = uPlane.buffer
         val vBuf = vPlane.buffer
-
-        val ySize = yBuf.remaining()
-        val uSize = uBuf.remaining()
-        val vSize = vBuf.remaining()
-
-        // Build NV21: Y plane followed by interleaved VU bytes
-        val nv21 = ByteArray(ySize + uSize + vSize)
-        yBuf.get(nv21, 0, ySize)
-        vBuf.get(nv21, ySize, vSize)
-        uBuf.get(nv21, ySize + vSize, uSize)
+        var uvIndex = width * height
+        for (row in 0 until height / 2) {
+            for (col in 0 until width / 2) {
+                val uvOffset = row * uvRowStride + col * uvPixelStride
+                vBuf.position(uvOffset)
+                nv21[uvIndex++] = vBuf.get()
+                uBuf.position(uvOffset)
+                nv21[uvIndex++] = uBuf.get()
+            }
+        }
 
         val yuvImage = android.graphics.YuvImage(
             nv21,
             android.graphics.ImageFormat.NV21,
-            proxy.width,
-            proxy.height,
+            width,
+            height,
             null,
         )
         val out = ByteArrayOutputStream()
-        yuvImage.compressToJpeg(android.graphics.Rect(0, 0, proxy.width, proxy.height), 85, out)
+        yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 85, out)
         return out.toByteArray()
     }
 }
