@@ -19,6 +19,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Strix">
 
+        <!--
+          On Android 12+ (API 31+), apps must declare vendor native libraries they load.
+          The on-device VLM's vision pipeline uses a TFLite OpenCL GPU delegate; without
+          these entries, dlopen of the vendor OpenCL driver fails with
+          "libvndksupport.so not found" and session creation aborts.
+        -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-car.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

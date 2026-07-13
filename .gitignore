@@ -2,6 +2,9 @@
 .gradle/
 build/
 
+# Downloaded model files (text LLM + VLM .task bundles) – multi-GB, never commit
+.model-cache/
+
 # Local configuration file (sdk path, etc)
 local.properties
 

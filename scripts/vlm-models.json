@@ -1,0 +1,28 @@
+[
+  {
+    "id": "gemma-3n-e2b-it-int4",
+    "name": "Gemma 3n E2B IT (INT4, vision)",
+    "description": "Multimodal (text + image) VLM for on-device inference. Smaller and faster of the two. ~3.0GB",
+    "filename": "gemma-3n-E2B-it-int4.task",
+    "repo": "google/gemma-3n-E2B-it-litert-preview",
+    "size_mb": 2992,
+    "format": "task",
+    "modality": "image-text-to-text",
+    "gated": true,
+    "license": "gemma",
+    "default": true
+  },
+  {
+    "id": "gemma-3n-e4b-it-int4",
+    "name": "Gemma 3n E4B IT (INT4, vision)",
+    "description": "Multimodal (text + image) VLM for on-device inference. Higher quality, larger footprint. ~4.2GB",
+    "filename": "gemma-3n-E4B-it-int4.task",
+    "repo": "google/gemma-3n-E4B-it-litert-preview",
+    "size_mb": 4208,
+    "format": "task",
+    "modality": "image-text-to-text",
+    "gated": true,
+    "license": "gemma",
+    "default": false
+  }
+]

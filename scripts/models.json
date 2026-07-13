@@ -1,0 +1,52 @@
+[
+  {
+    "id": "gemma3-1b-it-int4",
+    "name": "Gemma 3 1B IT (INT4)",
+    "description": "Smallest and fastest. Good for most devices. ~500MB",
+    "filename": "gemma3-1b-it-int4.task",
+    "repo": "litert-community/Gemma3-1B-IT",
+    "size_mb": 500,
+    "format": "task",
+    "default": true
+  },
+  {
+    "id": "gemma3-1b-it-q8-ekv1280",
+    "name": "Gemma 3 1B IT (Q8, 1280 ctx)",
+    "description": "Higher quality quantization, moderate context. ~1GB",
+    "filename": "Gemma3-1B-IT_multi-prefill-seq_q8_ekv1280.task",
+    "repo": "litert-community/Gemma3-1B-IT",
+    "size_mb": 1000,
+    "format": "task",
+    "default": false
+  },
+  {
+    "id": "gemma3-1b-it-q8-ekv4096",
+    "name": "Gemma 3 1B IT (Q8, 4096 ctx)",
+    "description": "Higher quality, large context window. ~1.2GB",
+    "filename": "Gemma3-1B-IT_multi-prefill-seq_q8_ekv4096.task",
+    "repo": "litert-community/Gemma3-1B-IT",
+    "size_mb": 1200,
+    "format": "task",
+    "default": false
+  },
+  {
+    "id": "gemma3-1b-it-f32-ekv1280",
+    "name": "Gemma 3 1B IT (F32, 1280 ctx)",
+    "description": "Full precision, best quality. Large. ~2.5GB",
+    "filename": "Gemma3-1B-IT_multi-prefill-seq_f32_ekv1280.task",
+    "repo": "litert-community/Gemma3-1B-IT",
+    "size_mb": 2500,
+    "format": "task",
+    "default": false
+  },
+  {
+    "id": "gemma3-1b-it-q4-ekv4096",
+    "name": "Gemma 3 1B IT (Q4, 4096 ctx, LiteRT)",
+    "description": "INT4 with large context. LiteRT format. ~600MB",
+    "filename": "Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm",
+    "repo": "litert-community/Gemma3-1B-IT",
+    "size_mb": 600,
+    "format": "litertlm",
+    "default": false
+  }
+]
