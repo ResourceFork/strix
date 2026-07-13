@@ -1,18 +1,17 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
 
 android {
     namespace = "com.resourcefork.rccontrol"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.resourcefork.rccontrol"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
@@ -37,10 +36,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 }
 
 dependencies {
@@ -48,6 +43,7 @@ dependencies {
 
     // Core Android
     implementation(libs.androidx.core.ktx)
+    implementation(libs.google.material)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
 
@@ -62,7 +58,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
 
     // USB serial – communication with Arduino Nano (CH340 USB-to-serial)
-    implementation(libs.usb.serial.for.android)
+    implementation(libs.usb.serial.android)
 
     // CameraX – capture frames to send to VLM
     implementation(libs.camera.core)

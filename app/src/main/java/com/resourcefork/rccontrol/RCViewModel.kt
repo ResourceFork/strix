@@ -5,9 +5,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -37,7 +39,7 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     // -------------------------------------------------------------------------
-    // Motor controllers
+    // Motor controllers & Worker
     // -------------------------------------------------------------------------
 
     private val realController = MotorController(application)
@@ -47,6 +49,33 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
     private val activeController: IMotorController
         get() = if (_uiState.value.isMockMode) mockController else realController
+
+    private sealed class Command {
+        data class Drive(val throttle: Int, val steering: Int) : Command()
+        data class SetThrottle(val channel: Int, val value: Int) : Command()
+        data class SetColor(val r: Int, val g: Int, val b: Int) : Command()
+        object Arm : Command()
+        object Disarm : Command()
+    }
+
+    private val commandChannel = Channel<Command>(Channel.CONFLATED)
+
+    init {
+        // Single background worker to process commands one at a time.
+        // Using CONFLATED channel means if the controller is slow, we only
+        // process the most recent drive/LED command and skip stale ones.
+        viewModelScope.launch(Dispatchers.IO) {
+            commandChannel.receiveAsFlow().collect { cmd ->
+                when (cmd) {
+                    is Command.Drive       -> activeController.drive(cmd.throttle, cmd.steering)
+                    is Command.SetThrottle -> activeController.setThrottle(cmd.channel, cmd.value)
+                    is Command.SetColor    -> activeController.setColor(cmd.r, cmd.g, cmd.b)
+                    is Command.Arm         -> activeController.arm()
+                    is Command.Disarm      -> activeController.disarm()
+                }
+            }
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Connection
@@ -62,7 +91,7 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
     fun disconnect() {
         viewModelScope.launch(Dispatchers.IO) {
-            activeController.disarm()
+            commandChannel.send(Command.Disarm)
             activeController.disconnect()
             _uiState.update { it.copy(isConnected = false, isArmed = false) }
         }
@@ -73,17 +102,13 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     // -------------------------------------------------------------------------
 
     fun arm() {
-        viewModelScope.launch(Dispatchers.IO) {
-            activeController.arm()
-            _uiState.update { it.copy(isArmed = true) }
-        }
+        commandChannel.trySend(Command.Arm)
+        _uiState.update { it.copy(isArmed = true) }
     }
 
     fun disarm() {
-        viewModelScope.launch(Dispatchers.IO) {
-            activeController.disarm()
-            _uiState.update { it.copy(isArmed = false) }
-        }
+        commandChannel.trySend(Command.Disarm)
+        _uiState.update { it.copy(isArmed = false) }
     }
 
     // -------------------------------------------------------------------------
@@ -97,9 +122,8 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     fun onJoystickInput(xAxis: Float, yAxis: Float) {
         val throttle = (yAxis * 100).toInt().coerceIn(-100, 100)
         val steering = (xAxis * 100).toInt().coerceIn(-100, 100)
-        viewModelScope.launch(Dispatchers.IO) {
-            activeController.drive(throttle, steering)
-        }
+        commandChannel.trySend(Command.Drive(throttle, steering))
+
         val left  = (throttle + steering).coerceIn(-100, 100)
         val right = (throttle - steering).coerceIn(-100, 100)
         _uiState.update { s ->
@@ -113,9 +137,8 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     fun setChannelThrottle(channel: Int, value: Int) {
         if (channel !in 1..3) return
         val clamped = value.coerceIn(-100, 100)
-        viewModelScope.launch(Dispatchers.IO) {
-            activeController.setThrottle(channel, clamped)
-        }
+        commandChannel.trySend(Command.SetThrottle(channel, clamped))
+
         _uiState.update { s ->
             val t = s.throttle.copyOf()
             t[channel - 1] = clamped
@@ -131,9 +154,8 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         val r = (color.red   * 255).toInt()
         val g = (color.green * 255).toInt()
         val b = (color.blue  * 255).toInt()
-        viewModelScope.launch(Dispatchers.IO) {
-            activeController.setColor(r, g, b)
-        }
+        commandChannel.trySend(Command.SetColor(r, g, b))
+
         _uiState.update { it.copy(ledColor = color) }
     }
 
@@ -175,8 +197,12 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(vlmRunning = true, vlmOutput = "") }
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // Use a local string builder to avoid repeated StateFlow updates
+                // causing quadratic string allocation and UI lag.
+                val fullText = StringBuilder()
                 client.analyzeFrame(frameJpeg, prompt) { token ->
-                    _uiState.update { it.copy(vlmOutput = it.vlmOutput + token) }
+                    fullText.append(token)
+                    _uiState.update { it.copy(vlmOutput = fullText.toString()) }
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = "VLM error: ${e.message}") }
@@ -204,12 +230,8 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        activeController.disarm()
-        activeController.disconnect()
-        // Always clean up the real controller as well in case mock mode was active.
-        if (_uiState.value.isMockMode) {
-            realController.disarm()
-            realController.disconnect()
-        }
+        commandChannel.close()
+        realController.disarm()
+        realController.disconnect()
     }
 }
