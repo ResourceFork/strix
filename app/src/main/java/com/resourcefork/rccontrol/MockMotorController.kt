@@ -23,7 +23,7 @@ class MockMotorController : IMotorController {
      * @param connected     Whether the mock is "connected".
      * @param armed         Whether the mock has been armed.
      * @param throttle      Per-channel throttle values (index 0 = channel 1).
-     * @param ledR/G/B      Current LED colour components (0–255).
+     * @param ledR/G/B      Current LED color components (0–255).
      * @param lastCommand   Human-readable description of the last command sent.
      */
     data class MockState(

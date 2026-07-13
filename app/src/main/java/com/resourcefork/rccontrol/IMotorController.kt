@@ -38,7 +38,7 @@ interface IMotorController {
     fun drive(throttle: Int, steering: Int)
 
     /**
-     * Sets the RGB LED colour.
+     * Sets the RGB LED color.
      * @param r red   0–255.
      * @param g green 0–255.
      * @param b blue  0–255.

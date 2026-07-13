@@ -44,7 +44,7 @@ import kotlin.math.abs
  * - A pulsing indicator confirming mock mode is active.
  * - Armed / Disarmed status badge.
  * - Throttle bars for channels 1–3 (left motor, right motor, auxiliary).
- * - RGB LED colour swatch.
+ * - RGB LED color swatch.
  * - The raw command string of the most-recent operation.
  */
 @Composable
@@ -82,7 +82,7 @@ fun MockReceiverPanel(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        // ── LED colour ───────────────────────────────────────────────────────
+        // ── LED color ───────────────────────────────────────────────────────
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
