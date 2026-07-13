@@ -21,7 +21,7 @@ import kotlin.concurrent.withLock
  *
  * All public methods are safe to call from any thread.
  */
-class MotorController(private val context: Context) {
+class MotorController(private val context: Context) : IMotorController {
 
     companion object {
         private const val BAUD_RATE = 115200
@@ -43,7 +43,7 @@ class MotorController(private val context: Context) {
      *
      * @return true if the port was opened successfully.
      */
-    fun connect(): Boolean {
+    override fun connect(): Boolean {
         val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
         val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
         if (drivers.isEmpty()) return false
@@ -68,7 +68,7 @@ class MotorController(private val context: Context) {
     }
 
     /** Closes the serial port and releases the USB connection. */
-    fun disconnect() {
+    override fun disconnect() {
         lock.withLock {
             try { port?.close() } catch (_: Exception) {}
             port = null
@@ -76,7 +76,7 @@ class MotorController(private val context: Context) {
     }
 
     /** @return true if the serial port is currently open. */
-    val isConnected: Boolean get() = port != null
+    override val isConnected: Boolean get() = port != null
 
     // -------------------------------------------------------------------------
     // Arm / disarm
@@ -86,13 +86,13 @@ class MotorController(private val context: Context) {
      * Arms the controller.  Throttle commands are ignored until armed.
      * Sends "A:1\n".
      */
-    fun arm() = sendCommand("A:1")
+    override fun arm() = sendCommand("A:1")
 
     /**
      * Disarms the controller.  All servo channels return to neutral and the
      * LED is turned off.  Sends "A:0\n".
      */
-    fun disarm() = sendCommand("A:0")
+    override fun disarm() = sendCommand("A:0")
 
     // -------------------------------------------------------------------------
     // Motor / servo control
@@ -104,7 +104,7 @@ class MotorController(private val context: Context) {
      * @param channel 1, 2, or 3  (D9, D10, D11 on the Nano).
      * @param value   -100 (full reverse / left) … 0 (neutral) … 100 (full forward / right).
      */
-    fun setThrottle(channel: Int, value: Int) {
+    override fun setThrottle(channel: Int, value: Int) {
         require(channel in 1..3) { "channel must be 1–3, got $channel" }
         sendCommand("T$channel:${value.coerceIn(-100, 100)}")
     }
@@ -116,7 +116,7 @@ class MotorController(private val context: Context) {
      *
      * Positive throttle = forward, positive steering = turn right.
      */
-    fun drive(throttle: Int, steering: Int) {
+    override fun drive(throttle: Int, steering: Int) {
         val t = throttle.coerceIn(-100, 100)
         val s = steering.coerceIn(-100, 100)
         val left  = (t + s).coerceIn(-100, 100)
@@ -133,7 +133,7 @@ class MotorController(private val context: Context) {
      * Sets the RGB LED color.  Values outside 0–255 are clamped.
      * Sends "C:r,g,b\n".
      */
-    fun setColor(r: Int, g: Int, b: Int) {
+    override fun setColor(r: Int, g: Int, b: Int) {
         sendCommand("C:${r.coerceIn(0, 255)},${g.coerceIn(0, 255)},${b.coerceIn(0, 255)}")
     }
 
@@ -146,7 +146,7 @@ class MotorController(private val context: Context) {
      *
      * @return Parsed [Status] on success, or null on timeout / parse error.
      */
-    fun ping(): Status? {
+    override fun ping(): Status? {
         sendCommand("?")
         val raw = readLine() ?: return null
         return Status.parse(raw)

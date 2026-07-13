@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Holds all observable state for the RC-car controller UI and mediates between
- * the Compose layer and the [MotorController] / [VlmClient].
+ * the Compose layer and the [IMotorController] / [VlmClient].
  */
 class RCViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -30,16 +30,23 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         val vlmRunning: Boolean = false,
         val cameraPermissionGranted: Boolean = false,
         val errorMessage: String? = null,
+        val isMockMode: Boolean = false,
     )
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     // -------------------------------------------------------------------------
-    // Motor controller
+    // Motor controllers
     // -------------------------------------------------------------------------
 
-    val motorController = MotorController(application)
+    private val realController = MotorController(application)
+
+    /** Mock controller – always instantiated so the UI can observe [MockMotorController.mockState]. */
+    val mockController = MockMotorController()
+
+    private val activeController: IMotorController
+        get() = if (_uiState.value.isMockMode) mockController else realController
 
     // -------------------------------------------------------------------------
     // Connection
@@ -48,15 +55,15 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     /** Connect to the Arduino.  Must be called after USB permission is granted. */
     fun connect() {
         viewModelScope.launch(Dispatchers.IO) {
-            val ok = motorController.connect()
+            val ok = activeController.connect()
             _uiState.update { it.copy(isConnected = ok, errorMessage = if (ok) null else "USB connection failed") }
         }
     }
 
     fun disconnect() {
         viewModelScope.launch(Dispatchers.IO) {
-            motorController.disarm()
-            motorController.disconnect()
+            activeController.disarm()
+            activeController.disconnect()
             _uiState.update { it.copy(isConnected = false, isArmed = false) }
         }
     }
@@ -67,14 +74,14 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
     fun arm() {
         viewModelScope.launch(Dispatchers.IO) {
-            motorController.arm()
+            activeController.arm()
             _uiState.update { it.copy(isArmed = true) }
         }
     }
 
     fun disarm() {
         viewModelScope.launch(Dispatchers.IO) {
-            motorController.disarm()
+            activeController.disarm()
             _uiState.update { it.copy(isArmed = false) }
         }
     }
@@ -91,7 +98,7 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         val throttle = (yAxis * 100).toInt().coerceIn(-100, 100)
         val steering = (xAxis * 100).toInt().coerceIn(-100, 100)
         viewModelScope.launch(Dispatchers.IO) {
-            motorController.drive(throttle, steering)
+            activeController.drive(throttle, steering)
         }
         val left  = (throttle + steering).coerceIn(-100, 100)
         val right = (throttle - steering).coerceIn(-100, 100)
@@ -107,7 +114,7 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         if (channel !in 1..3) return
         val clamped = value.coerceIn(-100, 100)
         viewModelScope.launch(Dispatchers.IO) {
-            motorController.setThrottle(channel, clamped)
+            activeController.setThrottle(channel, clamped)
         }
         _uiState.update { s ->
             val t = s.throttle.copyOf()
@@ -125,9 +132,30 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         val g = (color.green * 255).toInt()
         val b = (color.blue  * 255).toInt()
         viewModelScope.launch(Dispatchers.IO) {
-            motorController.setColor(r, g, b)
+            activeController.setColor(r, g, b)
         }
         _uiState.update { it.copy(ledColor = color) }
+    }
+
+    // -------------------------------------------------------------------------
+    // Mock mode
+    // -------------------------------------------------------------------------
+
+    /**
+     * Toggles between the real USB controller and the [MockMotorController].
+     * If currently connected, the active controller is disarmed and disconnected
+     * before the mode switches.
+     */
+    fun toggleMockMode() {
+        val current = _uiState.value
+        val newMode = !current.isMockMode
+        viewModelScope.launch(Dispatchers.IO) {
+            if (current.isConnected) {
+                activeController.disarm()
+                activeController.disconnect()
+            }
+            _uiState.update { it.copy(isMockMode = newMode, isConnected = false, isArmed = false) }
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -176,7 +204,12 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        motorController.disarm()
-        motorController.disconnect()
+        activeController.disarm()
+        activeController.disconnect()
+        // Always clean up the real controller as well in case mock mode was active.
+        if (_uiState.value.isMockMode) {
+            realController.disarm()
+            realController.disconnect()
+        }
     }
 }

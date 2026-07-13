@@ -17,4 +17,8 @@
     <string name="status_disconnected">Disconnected</string>
     <string name="status_armed">Armed</string>
     <string name="status_disarmed">Disarmed</string>
+    <string name="mock_mode">Mock Mode</string>
+    <string name="mock_mode_description">Simulate hardware without Arduino</string>
+    <string name="connect_mock">Connect Mock Receiver</string>
+    <string name="status_mock">Mock</string>
 </resources>

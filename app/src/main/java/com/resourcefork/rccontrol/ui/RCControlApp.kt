@@ -26,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -81,7 +82,11 @@ fun RCControlApp(
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
                 actions = {
-                    ConnectionStatusChip(connected = uiState.isConnected, armed = uiState.isArmed)
+                    ConnectionStatusChip(
+                        connected  = uiState.isConnected,
+                        armed      = uiState.isArmed,
+                        isMockMode = uiState.isMockMode,
+                    )
                 },
             )
         },
@@ -98,13 +103,25 @@ fun RCControlApp(
 
             // ── Connection + arm controls ─────────────────────────────────
             ConnectionCard(
-                isConnected = uiState.isConnected,
-                isArmed     = uiState.isArmed,
-                onConnect    = { viewModel.connect() },
-                onDisconnect = { viewModel.disconnect() },
-                onArm        = { viewModel.arm() },
-                onDisarm     = { viewModel.disarm() },
+                isConnected     = uiState.isConnected,
+                isArmed         = uiState.isArmed,
+                isMockMode      = uiState.isMockMode,
+                onConnect        = { viewModel.connect() },
+                onDisconnect     = { viewModel.disconnect() },
+                onArm            = { viewModel.arm() },
+                onDisarm         = { viewModel.disarm() },
+                onToggleMockMode = { viewModel.toggleMockMode() },
             )
+
+            // ── Mock receiver panel ───────────────────────────────────────
+            if (uiState.isMockMode) {
+                Card(colors = cardColors()) {
+                    MockReceiverPanel(
+                        mockController = viewModel.mockController,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
 
             // ── Virtual joystick ─────────────────────────────────────────
             Card(colors = cardColors()) {
@@ -185,59 +202,91 @@ fun RCControlApp(
 private fun ConnectionCard(
     isConnected: Boolean,
     isArmed: Boolean,
+    isMockMode: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onArm: () -> Unit,
     onDisarm: () -> Unit,
+    onToggleMockMode: () -> Unit,
 ) {
     Card(colors = cardColors()) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (isConnected) {
-                OutlinedButton(onClick = onDisconnect, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.LinkOff, contentDescription = null)
-                    Spacer(Modifier.padding(4.dp))
-                    Text("Disconnect")
-                }
-                if (isArmed) {
-                    Button(
-                        onClick = onDisarm,
-                        colors  = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Disarm")
+            // ── Connect / Arm buttons ─────────────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isConnected) {
+                    OutlinedButton(onClick = onDisconnect, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.LinkOff, contentDescription = null)
+                        Spacer(Modifier.padding(4.dp))
+                        Text("Disconnect")
+                    }
+                    if (isArmed) {
+                        Button(
+                            onClick = onDisarm,
+                            colors  = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Disarm")
+                        }
+                    } else {
+                        FilledTonalButton(onClick = onArm, modifier = Modifier.weight(1f)) {
+                            Text("Arm")
+                        }
                     }
                 } else {
-                    FilledTonalButton(onClick = onArm, modifier = Modifier.weight(1f)) {
-                        Text("Arm")
+                    Button(onClick = onConnect, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.Link, contentDescription = null)
+                        Spacer(Modifier.padding(4.dp))
+                        Text(if (isMockMode) stringResource(R.string.connect_mock) else "Connect to Arduino")
                     }
                 }
-            } else {
-                Button(onClick = onConnect, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Outlined.Link, contentDescription = null)
-                    Spacer(Modifier.padding(4.dp))
-                    Text("Connect to Arduino")
+            }
+
+            // ── Mock mode toggle ──────────────────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(
+                        stringResource(R.string.mock_mode),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        stringResource(R.string.mock_mode_description),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    )
                 }
+                Switch(
+                    checked         = isMockMode,
+                    onCheckedChange = { onToggleMockMode() },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ConnectionStatusChip(connected: Boolean, armed: Boolean) {
+private fun ConnectionStatusChip(connected: Boolean, armed: Boolean, isMockMode: Boolean) {
     val color = when {
-        armed     -> Color(0xFFFF6F00)  // amber
-        connected -> Color(0xFF4CAF50)  // green
-        else      -> Color(0xFF9E9E9E)  // grey
+        armed      -> Color(0xFFFF6F00)  // amber
+        connected  -> Color(0xFF4CAF50)  // green
+        else       -> Color(0xFF9E9E9E)  // grey
     }
     val label = when {
         armed     -> stringResource(R.string.status_armed)
-        connected -> stringResource(R.string.status_connected)
+        connected -> if (isMockMode) stringResource(R.string.status_mock) else stringResource(R.string.status_connected)
         else      -> stringResource(R.string.status_disconnected)
     }
     Row(
