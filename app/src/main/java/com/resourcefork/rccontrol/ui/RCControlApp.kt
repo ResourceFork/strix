@@ -192,11 +192,15 @@ fun RCControlApp(
                         downloadProgress = uiState.downloadProgress,
                         downloadingModelName = uiState.downloadingModelName,
                         hfToken = uiState.hfToken,
+                        cloudBaseUrl = uiState.cloudBaseUrl,
+                        cloudModel = uiState.cloudModel,
                         onCameraPermissionResult = { viewModel.onCameraPermissionResult(it) },
                         onSelectCamera = { id -> cameraFrameProvider?.selectCamera(id) },
                         onToggleSource = { onDevice -> viewModel.setUseOnDeviceVlm(onDevice) },
                         onRescanModel = { viewModel.rescanForModel() },
                         onHfTokenChange = { token -> viewModel.setHfToken(token) },
+                        onCloudBaseUrlChange = { url -> viewModel.setCloudBaseUrl(url) },
+                        onCloudModelChange = { m -> viewModel.setCloudModel(m) },
                         onDownloadModel = { model, token -> viewModel.downloadModel(model, token) },
                         onAnalyze = { apiKey, prompt ->
                             val lastFrame = cameraFrameProvider?.lastFrame ?: return@CameraSection

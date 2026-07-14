@@ -42,6 +42,8 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         val downloadProgress: Float? = null, // 0f..1f, or null when total size unknown
         val downloadingModelName: String? = null,
         val hfToken: String = "",
+        val cloudBaseUrl: String = DEFAULT_CLOUD_BASE_URL,
+        val cloudModel: String = DEFAULT_CLOUD_MODEL,
         val cameraPermissionGranted: Boolean = false,
         val errorMessage: String? = null,
         val isMockMode: Boolean = false,
@@ -101,7 +103,14 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         // Sanitize on the way in: earlier versions may have persisted pasted whitespace.
         val storedToken =
             prefs.getString(KEY_HF_TOKEN, "").orEmpty().filterNot { it.isWhitespace() }
-        _uiState.update { it.copy(hfToken = storedToken) }
+        _uiState.update {
+            it.copy(
+                hfToken = storedToken,
+                cloudBaseUrl =
+                    prefs.getString(KEY_CLOUD_BASE_URL, DEFAULT_CLOUD_BASE_URL).orEmpty(),
+                cloudModel = prefs.getString(KEY_CLOUD_MODEL, DEFAULT_CLOUD_MODEL).orEmpty(),
+            )
+        }
 
         // Detect whether an on-device VLM model has already been pushed to the device.
         refreshModelAvailability()
@@ -116,6 +125,20 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         val clean = token.filterNot { it.isWhitespace() }
         prefs.edit().putString(KEY_HF_TOKEN, clean).apply()
         _uiState.update { it.copy(hfToken = clean) }
+    }
+
+    /** Persists the remote VLM server base URL (e.g. http://100.x.y.z:11434/v1 for Ollama). */
+    fun setCloudBaseUrl(url: String) {
+        val clean = url.trim().trimEnd('/')
+        prefs.edit().putString(KEY_CLOUD_BASE_URL, clean).apply()
+        _uiState.update { it.copy(cloudBaseUrl = clean) }
+    }
+
+    /** Persists the remote VLM model name (e.g. qwen3-vl:8b for Ollama, gpt-4o for OpenAI). */
+    fun setCloudModel(model: String) {
+        val clean = model.trim()
+        prefs.edit().putString(KEY_CLOUD_MODEL, clean).apply()
+        _uiState.update { it.copy(cloudModel = clean) }
     }
 
     // -------------------------------------------------------------------------
@@ -363,13 +386,12 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
             return LocalVlmClient(getApplication(), path).also { localClient = it }
         }
 
-        if (apiKey.isBlank()) {
-            _uiState.update {
-                it.copy(errorMessage = "Enter a VLM API key, or switch to on-device inference.")
-            }
-            return null
-        }
-        return VlmClient(apiKey = apiKey)
+        // Remote server mode. The API key is optional: local servers such as Ollama or
+        // llama.cpp don't require one (an auth-checking reverse proxy will, though).
+        val s = _uiState.value
+        val baseUrl = s.cloudBaseUrl.ifBlank { DEFAULT_CLOUD_BASE_URL }
+        val model = s.cloudModel.ifBlank { DEFAULT_CLOUD_MODEL }
+        return VlmClient(apiKey = apiKey.trim(), baseUrl = baseUrl, model = model)
     }
 
     /**
@@ -460,6 +482,10 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val KEY_HF_TOKEN = "hf_token"
+        const val KEY_CLOUD_BASE_URL = "cloud_base_url"
+        const val KEY_CLOUD_MODEL = "cloud_model"
+        const val DEFAULT_CLOUD_BASE_URL = "https://api.openai.com/v1"
+        const val DEFAULT_CLOUD_MODEL = "gpt-4o"
         const val TAG = "RCViewModel"
     }
 }

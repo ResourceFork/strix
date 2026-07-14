@@ -64,13 +64,7 @@ class VlmClient(
     ): String {
         val b64 = Base64.getEncoder().encodeToString(imageBytes)
         val body = buildRequestJson(b64, prompt)
-        val request =
-            Request.Builder()
-                .url("$baseUrl/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
-                .addHeader("Content-Type", "application/json")
-                .post(body.toRequestBody("application/json".toMediaType()))
-                .build()
+        val request = buildRequest(body)
 
         http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
@@ -101,13 +95,7 @@ class VlmClient(
     ): List<Detection> {
         val b64 = Base64.getEncoder().encodeToString(imageBytes)
         val body = buildRequestJson(b64, DetectionParsing.buildPrompt(userPrompt))
-        val request =
-            Request.Builder()
-                .url("$baseUrl/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
-                .addHeader("Content-Type", "application/json")
-                .post(body.toRequestBody("application/json".toMediaType()))
-                .build()
+        val request = buildRequest(body)
 
         val results = mutableListOf<Detection>()
         val streamer = DetectionParsing.Streamer()
@@ -137,6 +125,22 @@ class VlmClient(
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
+
+    /**
+     * Builds the POST request. The Authorization header is only attached when a key is set: local
+     * OpenAI-compatible servers (Ollama, llama.cpp, LM Studio) don't require one.
+     */
+    private fun buildRequest(body: String): Request {
+        val builder =
+            Request.Builder()
+                .url("$baseUrl/chat/completions")
+                .addHeader("Content-Type", "application/json")
+                .post(body.toRequestBody("application/json".toMediaType()))
+        if (apiKey.isNotBlank()) {
+            builder.addHeader("Authorization", "Bearer $apiKey")
+        }
+        return builder.build()
+    }
 
     private fun buildRequestJson(imageB64: String, prompt: String): String =
         """

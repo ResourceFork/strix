@@ -97,11 +97,15 @@ fun CameraSection(
     downloadProgress: Float?,
     downloadingModelName: String?,
     hfToken: String,
+    cloudBaseUrl: String,
+    cloudModel: String,
     onCameraPermissionResult: (Boolean) -> Unit,
     onSelectCamera: (String) -> Unit,
     onToggleSource: (Boolean) -> Unit,
     onRescanModel: () -> Unit,
     onHfTokenChange: (String) -> Unit,
+    onCloudBaseUrlChange: (String) -> Unit,
+    onCloudModelChange: (String) -> Unit,
     onDownloadModel: (DownloadableModel, String) -> Unit,
     onAnalyze: (apiKey: String, prompt: String) -> Unit,
     onDetect: (apiKey: String, prompt: String) -> Unit,
@@ -174,7 +178,7 @@ fun CameraSection(
             val modelSuffix = onDeviceModelName?.let { " · $it" } ?: ""
             val statusText =
                 when {
-                    !useOnDevice -> "Using cloud VLM API (needs key + network)"
+                    !useOnDevice -> "Using remote VLM server (network required)"
                     onDeviceWarming -> "Loading model into memory…"
                     onDeviceReady -> "Model ready$modelSuffix"
                     onDeviceModelAvailable -> "Model found$modelSuffix"
@@ -226,12 +230,27 @@ fun CameraSection(
                 }
             }
 
-            // VLM configuration fields – API key only needed for the cloud backend
+            // Remote server configuration – any OpenAI-compatible endpoint works
+            // (OpenAI, Gemini openai-compat, or self-hosted Ollama / llama.cpp / vLLM).
             if (!useOnDevice) {
+                OutlinedTextField(
+                    value = cloudBaseUrl,
+                    onValueChange = onCloudBaseUrlChange,
+                    label = { Text("Server URL (e.g. http://100.x.y.z:11434/v1)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = cloudModel,
+                    onValueChange = onCloudModelChange,
+                    label = { Text("Model (e.g. qwen3-vl:8b or gpt-4o)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 OutlinedTextField(
                     value = apiKey,
                     onValueChange = { apiKey = it },
-                    label = { Text("VLM API Key") },
+                    label = { Text("API Key (optional for local servers)") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
@@ -250,7 +269,7 @@ fun CameraSection(
             ) {
                 val canRun =
                     !vlmRunning &&
-                        (if (useOnDevice) onDeviceModelAvailable else apiKey.isNotBlank())
+                        (if (useOnDevice) onDeviceModelAvailable else cloudBaseUrl.isNotBlank())
                 Button(onClick = { onAnalyze(apiKey, prompt) }, enabled = canRun) {
                     Text("Analyze Frame")
                 }
