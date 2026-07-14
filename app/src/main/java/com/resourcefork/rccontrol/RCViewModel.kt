@@ -147,10 +147,11 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Connect to the Arduino. Must be called after USB permission is granted. */
     fun connect() {
+        val controller = activeController
         viewModelScope.launch(Dispatchers.IO) {
-            val ok = activeController.connect()
+            val ok = controller.connect()
             _uiState.update {
-                it.copy(isConnected = ok, errorMessage = if (ok) null else "USB connection failed")
+                it.copy(isConnected = ok, errorMessage = if (ok) null else "Connection failed")
             }
         }
     }
@@ -232,10 +233,11 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleMockMode() {
         val current = _uiState.value
         val newMode = !current.isMockMode
+        val controllerToDisconnect = if (current.isMockMode) mockController else realController
         viewModelScope.launch(Dispatchers.IO) {
             if (current.isConnected) {
-                activeController.disarm()
-                activeController.disconnect()
+                controllerToDisconnect.disarm()
+                controllerToDisconnect.disconnect()
             }
             _uiState.update { it.copy(isMockMode = newMode, isConnected = false, isArmed = false) }
         }

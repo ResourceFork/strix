@@ -32,9 +32,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.resourcefork.rccontrol.MockMotorController
+import com.resourcefork.rccontrol.R
 import kotlin.math.abs
 
 /**
@@ -65,7 +67,7 @@ fun MockReceiverPanel(
         ) {
             PulsingDot()
             Text(
-                "Mock Receiver",
+                stringResource(R.string.mock_receiver),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -76,9 +78,9 @@ fun MockReceiverPanel(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         // ── Motor channels ───────────────────────────────────────────────────
-        ThrottleBar(label = "L (Ch 1)", value = state.throttle[0])
-        ThrottleBar(label = "R (Ch 2)", value = state.throttle[1])
-        ThrottleBar(label = "Aux (Ch 3)", value = state.throttle[2])
+        ThrottleBar(label = stringResource(R.string.mock_channel_l), value = state.throttle[0])
+        ThrottleBar(label = stringResource(R.string.mock_channel_r), value = state.throttle[1])
+        ThrottleBar(label = stringResource(R.string.mock_channel_aux), value = state.throttle[2])
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -88,7 +90,7 @@ fun MockReceiverPanel(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                "LED",
+                stringResource(R.string.mock_led),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -148,7 +150,7 @@ private fun PulsingDot() {
 private fun ArmedBadge(armed: Boolean) {
     val bgColor = if (armed) Color(0xFFFF6F00) else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (armed) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-    val label = if (armed) "ARMED" else "DISARMED"
+    val label = if (armed) stringResource(R.string.mock_armed) else stringResource(R.string.mock_disarmed)
 
     Box(
         contentAlignment = Alignment.Center,

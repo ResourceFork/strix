@@ -146,10 +146,10 @@ class MotorController(private val context: Context) : IMotorController {
      *
      * @return Parsed [Status] on success, or null on timeout / parse error.
      */
-    override fun ping(): Status? {
+    override fun ping(): ControllerStatus? {
         sendCommand("?")
         val raw = readLine() ?: return null
-        return Status.parse(raw)
+        return parseStatus(raw)
     }
 
     /**
@@ -158,7 +158,7 @@ class MotorController(private val context: Context) : IMotorController {
      * @param armed     true if the controller has been armed.
      * @param throttle  per-channel throttle values (index 0 = channel 1).
      */
-    data class Status(
+    private data class Status(
         val armed: Boolean,
         val throttle: IntArray,
     ) {
@@ -177,7 +177,13 @@ class MotorController(private val context: Context) : IMotorController {
                     null
                 }
             }
+
         }
+    }
+
+    private fun parseStatus(line: String): ControllerStatus? {
+        val status = Status.parse(line) ?: return null
+        return ControllerStatus(armed = status.armed, throttle = status.throttle.copyOf())
     }
 
     // -------------------------------------------------------------------------

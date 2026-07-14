@@ -1,5 +1,10 @@
 package com.resourcefork.rccontrol
 
+data class ControllerStatus(
+    val armed: Boolean,
+    val throttle: IntArray,
+)
+
 /**
  * Abstraction over the motor controller, allowing either a real USB-serial
  * [MotorController] or a [MockMotorController] to be swapped in at runtime.
@@ -49,5 +54,5 @@ interface IMotorController {
      * Pings the controller and returns its current status, or null on
      * timeout / not connected.
      */
-    fun ping(): MotorController.Status?
+    fun ping(): ControllerStatus?
 }

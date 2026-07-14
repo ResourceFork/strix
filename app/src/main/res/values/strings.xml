@@ -21,4 +21,11 @@
     <string name="mock_mode_description">Simulate hardware without Arduino</string>
     <string name="connect_mock">Connect Mock Receiver</string>
     <string name="status_mock">Mock</string>
+    <string name="mock_receiver">Mock Receiver</string>
+    <string name="mock_channel_l">L (Ch 1)</string>
+    <string name="mock_channel_r">R (Ch 2)</string>
+    <string name="mock_channel_aux">Aux (Ch 3)</string>
+    <string name="mock_led">LED</string>
+    <string name="mock_armed">ARMED</string>
+    <string name="mock_disarmed">DISARMED</string>
 </resources>
