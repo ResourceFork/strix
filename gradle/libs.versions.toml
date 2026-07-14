@@ -11,6 +11,9 @@ coroutines = "1.11.0"
 serialization-json = "1.11.0"
 usb-serial = "3.10.0"
 material = "1.12.0"
+androidx-browser = "1.8.0"
+mediapipe = "0.10.27"
+mediapipe-core = "0.10.28"
 junit = "4.13.2"
 
 [libraries]
@@ -32,6 +35,9 @@ camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.r
 camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camera" }
 camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camera" }
 usb-serial-android = { group = "com.github.mik3y", name = "usb-serial-for-android", version.ref = "usb-serial" }
+androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidx-browser" }
+mediapipe-tasks-genai = { group = "com.google.mediapipe", name = "tasks-genai", version.ref = "mediapipe" }
+mediapipe-tasks-core = { group = "com.google.mediapipe", name = "tasks-core", version.ref = "mediapipe-core" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization-json" }

@@ -66,8 +66,17 @@ dependencies {
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
 
-    // Networking – VLM API calls with streaming (SSE)
+    // Networking – cloud VLM API calls with streaming (SSE)
     implementation(libs.okhttp)
+
+    // Chrome Custom Tabs – open HF license/token pages in-app and return cleanly
+    implementation(libs.androidx.browser)
+
+    // On-device / offline VLM inference (MediaPipe LiteRT LLM Inference API).
+    // tasks-core provides the com.google.mediapipe.framework.image.MPImage container
+    // that LlmInferenceSession.addImage() requires for multimodal (vision) prompts.
+    implementation(libs.mediapipe.tasks.genai)
+    implementation(libs.mediapipe.tasks.core)
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
