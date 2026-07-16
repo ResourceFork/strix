@@ -24,8 +24,8 @@ import com.resourcefork.rccontrol.ui.theme.StrixTheme
  * - Host the Jetpack Compose UI via [RCControlApp].
  * - Manage the [CameraFrameProvider] lifecycle.
  *
- * After USB permission is granted, [RCViewModel.connect] is called which opens
- * the serial port; the ViewModel then exposes state to the Compose layer.
+ * After USB permission is granted, [RCViewModel.connect] is called which opens the serial port; the
+ * ViewModel then exposes state to the Compose layer.
  */
 class MainActivity : ComponentActivity() {
 
@@ -40,27 +40,32 @@ class MainActivity : ComponentActivity() {
     // USB permission broadcast receiver
     // ──────────────────────────────────────────────────────────────────────────
 
-    private val usbPermissionReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != ACTION_USB_PERMISSION) return
+    private val usbPermissionReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action != ACTION_USB_PERMISSION) return
 
-            synchronized(this) {
-                val device: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                }
-                val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                synchronized(this) {
+                    val device: UsbDevice? =
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(
+                                UsbManager.EXTRA_DEVICE,
+                                UsbDevice::class.java,
+                            )
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                        }
+                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
 
-                if (granted && device != null) {
-                    onUsbPermissionGranted()
-                } else {
-                    onUsbPermissionDenied()
+                    if (granted && device != null) {
+                        onUsbPermissionGranted()
+                    } else {
+                        onUsbPermissionDenied()
+                    }
                 }
             }
         }
-    }
 
     // ──────────────────────────────────────────────────────────────────────────
     // Activity lifecycle
@@ -80,21 +85,22 @@ class MainActivity : ComponentActivity() {
 
         requestUsbPermissionIfNeeded()
 
-        // Set up CameraX frame provider (used by VLM section).
-        cameraFrameProvider = CameraFrameProvider(
-            context          = this,
-            lifecycleOwner   = this,
-            onFrame          = { /* frame is cached in lastFrame; VLM is triggered manually */ },
-            targetFps        = 1,
-        ).also { it.start() }
+        // Set up CameraX frame provider (feeds the VLM, the depth reflex layer, and the
+        // low-rate status view).
+        cameraFrameProvider =
+            CameraFrameProvider(
+                    context = this,
+                    lifecycleOwner = this,
+                    // Each sampled frame also feeds the depth reflex layer (no-op without a
+                    // depth model on the device); VLM inference stays manually triggered.
+                    onFrame = { jpeg -> viewModel.onCameraFrame(jpeg) },
+                )
+                .also { it.start() }
 
         // Compose UI
         setContent {
             StrixTheme {
-                RCControlApp(
-                    viewModel           = viewModel,
-                    cameraFrameProvider = cameraFrameProvider,
-                )
+                RCControlApp(viewModel = viewModel, cameraFrameProvider = cameraFrameProvider)
             }
         }
     }
@@ -126,24 +132,23 @@ class MainActivity : ComponentActivity() {
     private fun requestUsbPermissionIfNeeded() {
         val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
         // Only consider devices recognised by the USB-serial prober (e.g. CH340 Nano).
-        val device = UsbSerialProber.getDefaultProber()
-            .findAllDrivers(usbManager)
-            .firstOrNull()
-            ?.device ?: return // no known serial device attached
+        val device =
+            UsbSerialProber.getDefaultProber().findAllDrivers(usbManager).firstOrNull()?.device
+                ?: return // no known serial device attached
 
         if (usbManager.hasPermission(device)) {
             onUsbPermissionGranted()
             return
         }
 
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            PendingIntent.FLAG_MUTABLE
-        } else {
-            0
-        }
-        val permissionIntent = PendingIntent.getBroadcast(
-            this, 0, Intent(ACTION_USB_PERMISSION), flags,
-        )
+        val flags =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_MUTABLE
+            } else {
+                0
+            }
+        val permissionIntent =
+            PendingIntent.getBroadcast(this, 0, Intent(ACTION_USB_PERMISSION), flags)
         usbManager.requestPermission(device, permissionIntent)
         // The user sees the system "Allow app to access USB device?" dialog.
         // The result arrives in usbPermissionReceiver above.

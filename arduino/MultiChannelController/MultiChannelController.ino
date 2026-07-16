@@ -1,18 +1,15 @@
 /*
   Multi-channel serial controller for Arduino Nano
   - Up to 3 servo/ESC channels (throttle or steering)
-  - 1 RGB LED output (PWM, common-cathode assumed)
 
   Wire protocol (newline-terminated ASCII lines):
     A:1\n            -- arm (required before T commands take effect)
-    A:0\n            -- disarm (all channels forced neutral, LED off)
+    A:0\n            -- disarm (all channels forced neutral)
     T<ch>:<value>\n  -- set channel <ch> (1-3) to <value>, -100 to 100
                         e.g. "T1:50\n" sets channel 1 to 50% forward
-    C:<r>,<g>,<b>\n  -- set RGB LED, each 0-255, e.g. "C:255,0,128\n"
     ?\n              -- ping, replies "OK:<armed>:<t1>:<t2>:<t3>\n"
 
-  Failsafe: if no command arrives for FAILSAFE_MS, all channels go
-  neutral and the LED turns off.
+  Failsafe: if no command arrives for FAILSAFE_MS, all channels go neutral.
 
   ---- WIRING ----
   Servo/ESC channels (signal wire only -- share ground, do NOT power
@@ -21,16 +18,6 @@
     Channel 2 signal -> D10
     Channel 3 signal -> D11
     All ESC/servo ground wires -> Nano GND (common ground is required)
-
-  RGB LED (common-cathode assumed):
-    Red leg    -> D3  -> 220-330ohm resistor -> LED red anode
-    Green leg  -> D5  -> 220-330ohm resistor -> LED green anode
-    Blue leg   -> D6  -> 220-330ohm resistor -> LED blue anode
-    LED cathode (common, usually the longest pin) -> Nano GND
-
-  If your LED is common-ANODE instead, wire the common leg to 5V
-  instead of GND, and set INVERT_LED below to true (common-anode
-  LEDs light up on LOW, so PWM values need to be inverted).
 */
 
 #include <Servo.h>
@@ -38,11 +25,6 @@
 const int CH1_PIN = 9;
 const int CH2_PIN = 10;
 const int CH3_PIN = 11;
-
-const int LED_R_PIN = 3;
-const int LED_G_PIN = 5;
-const int LED_B_PIN = 6;
-const bool INVERT_LED = false; // set true for common-anode RGB LEDs
 
 const unsigned long FAILSAFE_MS = 500;
 const int PULSE_MIN = 1000;
@@ -66,11 +48,6 @@ void setup() {
   ch2.writeMicroseconds(PULSE_NEUTRAL);
   ch3.writeMicroseconds(PULSE_NEUTRAL);
 
-  pinMode(LED_R_PIN, OUTPUT);
-  pinMode(LED_G_PIN, OUTPUT);
-  pinMode(LED_B_PIN, OUTPUT);
-  setLed(0, 0, 0);
-
   lastCommandTime = millis();
 }
 
@@ -80,7 +57,6 @@ void loop() {
   if (armed && millis() - lastCommandTime > FAILSAFE_MS) {
     armed = false;
     setAllNeutral();
-    setLed(0, 0, 0);
   }
 }
 
@@ -117,28 +93,8 @@ void handleCommand(const String& line) {
     lastCommandTime = millis();
     if (!armed) {
       setAllNeutral();
-      setLed(0, 0, 0);
     }
     Serial.println(armed ? "ARMED" : "DISARMED");
-    return;
-  }
-
-  if (line.startsWith("C:")) {
-    lastCommandTime = millis();
-    int firstComma = line.indexOf(',');
-    int secondComma = line.indexOf(',', firstComma + 1);
-    if (firstComma == -1 || secondComma == -1) {
-      Serial.println("ERR:BAD_COLOR");
-      return;
-    }
-    int r = constrain(line.substring(2, firstComma).toInt(), 0, 255);
-    int g = constrain(line.substring(firstComma + 1, secondComma).toInt(), 0, 255);
-    int b = constrain(line.substring(secondComma + 1).toInt(), 0, 255);
-    setLed(r, g, b);
-    Serial.print("LED:");
-    Serial.print(r); Serial.print(",");
-    Serial.print(g); Serial.print(",");
-    Serial.println(b);
     return;
   }
 
@@ -180,15 +136,4 @@ void setAllNeutral() {
   lastThrottle[0] = 0;
   lastThrottle[1] = 0;
   lastThrottle[2] = 0;
-}
-
-void setLed(int r, int g, int b) {
-  if (INVERT_LED) {
-    r = 255 - r;
-    g = 255 - g;
-    b = 255 - b;
-  }
-  analogWrite(LED_R_PIN, r);
-  analogWrite(LED_G_PIN, g);
-  analogWrite(LED_B_PIN, b);
 }

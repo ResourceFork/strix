@@ -1,6 +1,5 @@
 package com.resourcefork.rccontrol.ui
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -45,21 +44,14 @@ import kotlin.math.abs
  * Shows:
  * - A pulsing indicator confirming mock mode is active.
  * - Armed / Disarmed status badge.
- * - Throttle bars for channels 1–3 (left motor, right motor, auxiliary).
- * - RGB LED color swatch.
+ * - Throttle bars for channels 1–2 (drive ESC thrust, steering servo).
  * - The raw command string of the most-recent operation.
  */
 @Composable
-fun MockReceiverPanel(
-    mockController: MockMotorController,
-    modifier: Modifier = Modifier,
-) {
+fun MockReceiverPanel(mockController: MockMotorController, modifier: Modifier = Modifier) {
     val state by mockController.mockState.collectAsState()
 
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // ── Header ───────────────────────────────────────────────────────────
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -80,34 +72,6 @@ fun MockReceiverPanel(
         // ── Motor channels ───────────────────────────────────────────────────
         ThrottleBar(label = stringResource(R.string.mock_channel_l), value = state.throttle[0])
         ThrottleBar(label = stringResource(R.string.mock_channel_r), value = state.throttle[1])
-        ThrottleBar(label = stringResource(R.string.mock_channel_aux), value = state.throttle[2])
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-        // ── LED color ───────────────────────────────────────────────────────
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                stringResource(R.string.mock_led),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            val ledColor = Color(state.ledR / 255f, state.ledG / 255f, state.ledB / 255f)
-            val animatedLed by animateColorAsState(targetValue = ledColor, label = "led")
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(animatedLed),
-            )
-            Text(
-                "#%02X%02X%02X".format(state.ledR, state.ledG, state.ledB),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-            )
-        }
 
         // ── Last command ─────────────────────────────────────────────────────
         if (state.lastCommand.isNotEmpty()) {
@@ -128,20 +92,17 @@ fun MockReceiverPanel(
 @Composable
 private fun PulsingDot() {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue  = 1f,
-        animationSpec = infiniteRepeatable(
-            animation  = tween(800),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "dotAlpha",
-    )
+    val alpha by
+        infiniteTransition.animateFloat(
+            initialValue = 0.4f,
+            targetValue = 1f,
+            animationSpec =
+                infiniteRepeatable(animation = tween(800), repeatMode = RepeatMode.Reverse),
+            label = "dotAlpha",
+        )
     Box(
-        modifier = Modifier
-            .size(10.dp)
-            .clip(CircleShape)
-            .background(Color(0xFF4CAF50).copy(alpha = alpha)),
+        modifier =
+            Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF4CAF50).copy(alpha = alpha))
     )
 }
 
@@ -150,27 +111,23 @@ private fun PulsingDot() {
 private fun ArmedBadge(armed: Boolean) {
     val bgColor = if (armed) Color(0xFFFF6F00) else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (armed) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-    val label = if (armed) stringResource(R.string.mock_armed) else stringResource(R.string.mock_disarmed)
+    val label =
+        if (armed) stringResource(R.string.mock_armed) else stringResource(R.string.mock_disarmed)
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(bgColor)
-            .padding(horizontal = 8.dp, vertical = 2.dp),
+        modifier =
+            Modifier.clip(RoundedCornerShape(4.dp))
+                .background(bgColor)
+                .padding(horizontal = 8.dp, vertical = 2.dp),
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = textColor,
-        )
+        Text(label, style = MaterialTheme.typography.labelSmall, color = textColor)
     }
 }
 
 /**
- * Horizontal bar representing a throttle value in -100…100.
- * The bar is centred: positive values grow right (green), negative values
- * grow left (red).
+ * Horizontal bar representing a throttle value in -100…100. The bar is centred: positive values
+ * grow right (green), negative values grow left (red).
  */
 @Composable
 private fun ThrottleBar(label: String, value: Int) {
@@ -189,16 +146,11 @@ private fun ThrottleBar(label: String, value: Int) {
             modifier = Modifier.width(64.dp),
         )
 
-        Canvas(
-            modifier = Modifier
-                .weight(1f)
-                .height(12.dp)
-                .clip(RoundedCornerShape(6.dp)),
-        ) {
+        Canvas(modifier = Modifier.weight(1f).height(12.dp).clip(RoundedCornerShape(6.dp))) {
             // Background track
             drawRect(color = surfaceVariant)
 
-            val fraction = value / 100f            // -1f..1f
+            val fraction = value / 100f // -1f..1f
             val halfWidth = size.width / 2f
             val barWidth = halfWidth * abs(fraction)
 
@@ -206,17 +158,17 @@ private fun ThrottleBar(label: String, value: Int) {
                 val barColor = if (fraction >= 0f) Color(0xFF4CAF50) else Color(0xFFE53935)
                 val startX = if (fraction >= 0f) halfWidth else halfWidth - barWidth
                 drawRect(
-                    color    = barColor,
-                    topLeft  = Offset(startX, 0f),
-                    size     = Size(barWidth, size.height),
+                    color = barColor,
+                    topLeft = Offset(startX, 0f),
+                    size = Size(barWidth, size.height),
                 )
             }
 
             // Centre tick – use outlineVariant for contrast against the track
             drawLine(
-                color       = outlineVariant,
-                start       = Offset(halfWidth, 0f),
-                end         = Offset(halfWidth, size.height),
+                color = outlineVariant,
+                start = Offset(halfWidth, 0f),
+                end = Offset(halfWidth, size.height),
                 strokeWidth = 1.dp.toPx(),
             )
         }

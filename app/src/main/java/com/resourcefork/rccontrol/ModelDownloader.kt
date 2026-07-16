@@ -8,7 +8,10 @@ import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-/** A VLM model that can be downloaded on-device straight from Hugging Face. */
+/**
+ * A model that can be downloaded on-device: either from Hugging Face ([repo] + [filename]) or
+ * from a [directUrl] (e.g. a GitHub release asset – no auth, no license gate).
+ */
 data class DownloadableModel(
     val id: String,
     val name: String,
@@ -17,6 +20,7 @@ data class DownloadableModel(
     val filename: String,
     val sizeMb: Int,
     val gated: Boolean,
+    val directUrl: String? = null,
 )
 
 /**
@@ -44,6 +48,24 @@ object ModelCatalog {
                 sizeMb = 4208,
                 gated = true,
             ),
+        )
+
+    /**
+     * The monocular depth model powering the geometry reflex layer (see
+     * docs/scene-understanding-plan.md, Level 2). Fetched straight from the official MiDaS
+     * GitHub release – no Hugging Face account or license acceptance needed. Saved with a
+     * `.tflite` name so [DepthModelLocator] picks it up.
+     */
+    val depthModel =
+        DownloadableModel(
+            id = "midas-v2_1-small",
+            name = "MiDaS v2.1 small (depth)",
+            description = "Monocular depth for the obstacle reflex layer. ~63 MB",
+            repo = "",
+            filename = "midas-v2_1-small.tflite",
+            sizeMb = 63,
+            gated = false,
+            directUrl = "https://github.com/isl-org/MiDaS/releases/download/v2_1/model_opt.tflite",
         )
 }
 
@@ -80,12 +102,15 @@ class ModelDownloader(private val context: Context) {
         val outFile = File(dir, model.filename)
         val partFile = File(dir, "${model.filename}.part")
 
-        val url = "https://huggingface.co/${model.repo}/resolve/main/${model.filename}"
+        val url =
+            model.directUrl
+                ?: "https://huggingface.co/${model.repo}/resolve/main/${model.filename}"
         val requestBuilder = Request.Builder().url(url)
         // Strip whitespace defensively: a pasted trailing newline/space in a header value either
-        // makes OkHttp throw or makes HF reject the credential as malformed.
+        // makes OkHttp throw or makes HF reject the credential as malformed. Direct-URL models
+        // never get the HF token – it must not leak to third-party hosts.
         val cleanToken = hfToken?.filterNot { it.isWhitespace() }
-        if (!cleanToken.isNullOrBlank()) {
+        if (model.directUrl == null && !cleanToken.isNullOrBlank()) {
             requestBuilder.addHeader("Authorization", "Bearer $cleanToken")
         }
 

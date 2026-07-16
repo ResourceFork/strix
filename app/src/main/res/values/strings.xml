@@ -8,8 +8,6 @@
     <string name="disarm">Disarm</string>
     <string name="channel_1">Left Motor</string>
     <string name="channel_2">Right Motor</string>
-    <string name="channel_3">Channel 3</string>
-    <string name="led_color">LED Color</string>
     <string name="camera_section">Camera / VLM</string>
     <string name="vlm_api_key_hint">VLM API key</string>
     <string name="vlm_prompt_hint">VLM prompt (e.g. "What is ahead?")</string>
@@ -22,10 +20,8 @@
     <string name="connect_mock">Connect Mock Receiver</string>
     <string name="status_mock">Mock</string>
     <string name="mock_receiver">Mock Receiver</string>
-    <string name="mock_channel_l">L (Ch 1)</string>
-    <string name="mock_channel_r">R (Ch 2)</string>
-    <string name="mock_channel_aux">Aux (Ch 3)</string>
-    <string name="mock_led">LED</string>
+    <string name="mock_channel_l">Thrust (Ch 1)</string>
+    <string name="mock_channel_r">Steer (Ch 2)</string>
     <string name="mock_armed">ARMED</string>
     <string name="mock_disarmed">DISARMED</string>
 </resources>

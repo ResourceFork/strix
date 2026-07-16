@@ -1,7 +1,12 @@
 package com.resourcefork.rccontrol
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.Matrix
+import android.util.Log
+import android.util.Size
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
@@ -11,6 +16,8 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.getValue
@@ -25,12 +32,14 @@ import java.util.concurrent.Executors
 data class CameraOption(val id: String, val label: String)
 
 /**
- * Manages a CameraX session: exposes a [PreviewView] for live display and delivers compressed JPEG
- * frames via [onFrame] at approximately [targetFps].
+ * Manages a CameraX session with two decoupled streams:
+ * - [previewView]: a live full-rate (~30fps) preview surface for on-screen display.
+ * - An [ImageAnalysis] stream sampled at ~[targetFps] whose frames are rotated upright and
+ *   published as [lastFrame] (the JPEG handed to the VLM). Keeping VLM frames upright matters:
+ *   sensor-orientation input scrambles a model's notion of left/right/ahead.
  *
  * Multiple physical cameras (front / back / wide / tele / external) are enumerated into
- * [availableCameras]; the active one can be changed at runtime with [selectCamera], which rebinds
- * the preview + analysis use cases.
+ * [availableCameras]; the active one can be changed at runtime with [selectCamera].
  *
  * Lifecycle is tied to the provided [LifecycleOwner] – no manual start/stop required.
  */
@@ -39,11 +48,19 @@ class CameraFrameProvider(
     private val lifecycleOwner: LifecycleOwner,
     /** Called on the analysis executor thread with each captured JPEG. */
     private val onFrame: (ByteArray) -> Unit,
-    private val targetFps: Int = 1,
+    private val targetFps: Int = SAMPLE_FPS,
 ) {
-    val previewView: PreviewView = PreviewView(context)
+    /**
+     * Live camera preview surface for the UI. COMPATIBLE mode (TextureView) is required here: the
+     * default PERFORMANCE mode uses a SurfaceView, which ignores the scroll offset and
+     * rounded-corner clipping of the Compose container it sits in and renders black/misplaced.
+     */
+    val previewView: PreviewView =
+        PreviewView(context).apply {
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
 
-    /** The most recent JPEG frame, or null if no frame has been captured yet. */
+    /** The most recent upright JPEG frame, or null if no frame has been captured yet. */
     @Volatile
     var lastFrame: ByteArray? = null
         private set
@@ -62,16 +79,31 @@ class CameraFrameProvider(
     private var lastFrameMs = 0L
     private var cameraProvider: ProcessCameraProvider? = null
 
-    // Use cases are created once and reused across rebinds.
-    private val preview: Preview by lazy {
-        Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-    }
-    private val analysis: ImageAnalysis by lazy {
-        ImageAnalysis.Builder()
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-            .build()
-            .also { ia -> ia.setAnalyzer(analysisExecutor) { proxy -> processFrame(proxy) } }
+    // Created at start() and reused across camera switches.
+    private var preview: Preview? = null
+    private var analysis: ImageAnalysis? = null
+
+    private fun createUseCases() {
+        preview =
+            Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
+        analysis =
+            ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                .setResolutionSelector(
+                    // Resolution of the frames handed to the VLM (the preview is unaffected).
+                    // Falls back to the nearest supported size if this one isn't available.
+                    ResolutionSelector.Builder()
+                        .setResolutionStrategy(
+                            ResolutionStrategy(
+                                ANALYSIS_RESOLUTION,
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
+                            )
+                        )
+                        .build()
+                )
+                .build()
+                .also { ia -> ia.setAnalyzer(analysisExecutor) { proxy -> processFrame(proxy) } }
     }
 
     fun start() {
@@ -86,6 +118,7 @@ class CameraFrameProvider(
                 // Prefer the default back camera; otherwise fall back to the first camera found.
                 val initialId = defaultCameraId(provider) ?: availableCameras.firstOrNull()?.id
                 if (initialId != null) {
+                    createUseCases()
                     bindTo(provider, initialId)
                 }
             },
@@ -162,14 +195,24 @@ class CameraFrameProvider(
         }
     }
 
-    private fun bindTo(provider: ProcessCameraProvider, cameraId: String) {
-        try {
+    /** @return true if binding succeeded; false leaves any previous selection in place. */
+    private fun bindTo(provider: ProcessCameraProvider, cameraId: String): Boolean {
+        val previewUseCase = preview ?: return false
+        val analysisUseCase = analysis ?: return false
+        return try {
             provider.unbindAll()
-            provider.bindToLifecycle(lifecycleOwner, selectorForId(cameraId), preview, analysis)
+            provider.bindToLifecycle(
+                lifecycleOwner,
+                selectorForId(cameraId),
+                previewUseCase,
+                analysisUseCase,
+            )
             selectedCameraId = cameraId
-        } catch (_: Exception) {
+            true
+        } catch (e: Exception) {
             // Binding can fail if a camera is unavailable (e.g. in use by another app).
-            // Leave the previous selection in place.
+            Log.w(TAG, "Camera bind failed for id=$cameraId", e)
+            false
         }
     }
 
@@ -195,14 +238,28 @@ class CameraFrameProvider(
             if (nowMs - lastFrameMs < intervalMs) return
             lastFrameMs = nowMs
 
-            val jpeg = yuvToJpeg(proxy)
-            if (jpeg != null) {
-                lastFrame = jpeg
-                onFrame(jpeg)
-            }
+            val jpeg = yuvToJpeg(proxy) ?: return
+
+            // Rotate the VLM frame upright: analysis frames arrive in sensor orientation,
+            // which would scramble the model's notion of left/right/ahead.
+            val rotation = proxy.imageInfo.rotationDegrees
+            val uprightJpeg = if (rotation != 0) rotateJpeg(jpeg, rotation) ?: jpeg else jpeg
+
+            lastFrame = uprightJpeg
+            onFrame(uprightJpeg)
         } finally {
             proxy.close()
         }
+    }
+
+    /** Re-encodes [jpeg] rotated by [degrees]; null if the bytes can't be decoded. */
+    private fun rotateJpeg(jpeg: ByteArray, degrees: Int): ByteArray? {
+        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return null
+        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
+        val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        val out = ByteArrayOutputStream()
+        rotated.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        return out.toByteArray()
     }
 
     /**
@@ -251,5 +308,23 @@ class CameraFrameProvider(
         val out = ByteArrayOutputStream()
         yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 85, out)
         return out.toByteArray()
+    }
+
+    private companion object {
+        const val TAG = "CameraFrameProvider"
+
+        /**
+         * Rate at which analysis frames are sampled into [lastFrame] for the VLM. Independent of
+         * the preview, which runs at the camera's native rate (~30fps). 4fps keeps the VLM's frame
+         * at most ~250ms stale while costing only a few background JPEG conversions/sec.
+         */
+        const val SAMPLE_FPS = 4
+
+        /**
+         * Resolution of frames captured for the VLM. 640x480 balances scene understanding against
+         * cost: for token-scaled cloud models (Qwen VL) it is roughly 400 visual tokens; on-device
+         * Gemma 3n resizes to its fixed encoder input anyway.
+         */
+        val ANALYSIS_RESOLUTION = Size(640, 480)
     }
 }

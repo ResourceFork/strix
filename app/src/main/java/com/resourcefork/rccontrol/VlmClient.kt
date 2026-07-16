@@ -1,5 +1,6 @@
 package com.resourcefork.rccontrol
 
+import android.util.Log
 import java.io.IOException
 import java.util.Base64
 import java.util.concurrent.TimeUnit
@@ -99,6 +100,7 @@ class VlmClient(
 
         val results = mutableListOf<Detection>()
         val streamer = DetectionParsing.Streamer()
+        val rawText = StringBuilder()
 
         http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
@@ -112,12 +114,16 @@ class VlmClient(
                 val payload = line.removePrefix("data: ").trim()
                 if (payload == "[DONE]") break
                 val token = extractDeltaContent(payload) ?: continue
+                rawText.append(token)
                 for (objJson in streamer.feed(token)) {
                     val detection = DetectionParsing.parse(objJson) ?: continue
                     results.add(detection)
                     onDetection(detection)
                 }
             }
+        }
+        if (results.isEmpty()) {
+            Log.w(TAG, "detectObjects: nothing parsed. Raw model output: ${rawText.take(500)}")
         }
         return results
     }
@@ -212,5 +218,9 @@ class VlmClient(
         }
         sb.append('"')
         return sb.toString()
+    }
+
+    private companion object {
+        const val TAG = "VlmClient"
     }
 }

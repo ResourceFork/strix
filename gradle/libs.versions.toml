@@ -14,6 +14,7 @@ material = "1.12.0"
 androidx-browser = "1.8.0"
 mediapipe = "0.10.27"
 mediapipe-core = "0.10.28"
+litert = "1.4.2"
 junit = "4.13.2"
 
 [libraries]
@@ -38,6 +39,7 @@ usb-serial-android = { group = "com.github.mik3y", name = "usb-serial-for-androi
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidx-browser" }
 mediapipe-tasks-genai = { group = "com.google.mediapipe", name = "tasks-genai", version.ref = "mediapipe" }
 mediapipe-tasks-core = { group = "com.google.mediapipe", name = "tasks-core", version.ref = "mediapipe-core" }
+litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization-json" }

@@ -55,35 +55,6 @@ class MotorControllerStatusTest {
         assertNull(MotorController.Status.parse("OK:1:abc:25:0"))   // non-numeric
     }
 
-    @Test
-    fun `differential drive mixing clamps correctly`() {
-        // left  = throttle + steering, right = throttle - steering – both clamped to ±100
-        // 100 + 100 = 200 → clamped to 100
-        // 100 - 100 = 0
-        val throttle = 100
-        val steering = 100
-        val left  = (throttle + steering).coerceIn(-100, 100)
-        val right = (throttle - steering).coerceIn(-100, 100)
-        assertEquals(100, left)
-        assertEquals(0,   right)
-    }
-
-    @Test
-    fun `drive mixing straight forward`() {
-        val throttle = 50
-        val steering = 0
-        assertEquals(50, (throttle + steering).coerceIn(-100, 100))
-        assertEquals(50, (throttle - steering).coerceIn(-100, 100))
-    }
-
-    @Test
-    fun `drive mixing full left turn`() {
-        val throttle = 0
-        val steering = -50
-        assertEquals(-50, (throttle + steering).coerceIn(-100, 100))
-        assertEquals(50,  (throttle - steering).coerceIn(-100, 100))
-    }
-
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

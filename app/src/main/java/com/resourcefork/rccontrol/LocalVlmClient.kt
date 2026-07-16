@@ -32,12 +32,21 @@ class LocalVlmClient(
     // Lazy so the multi-GB model only loads on first actual use; reused afterwards.
     // Prefer the GPU backend: without it the text decoder runs on CPU, which is several
     // times slower per token. Falls back to the default backend if GPU init fails.
+    //
+    // Emulators are excluded from the GPU path outright: with no vendor GPU driver, the
+    // native engine SIGSEGVs (killing the process) rather than throwing something this
+    // try/catch could handle.
     private val engineLazy = lazy {
-        try {
-            LlmInference.createFromOptions(context, engineOptions(LlmInference.Backend.GPU))
-        } catch (e: Exception) {
-            Log.w(TAG, "GPU backend unavailable, falling back to default backend", e)
+        if (DeviceInfo.isEmulator) {
+            Log.w(TAG, "Emulator detected – using default backend (GPU would crash natively)")
             LlmInference.createFromOptions(context, engineOptions(null))
+        } else {
+            try {
+                LlmInference.createFromOptions(context, engineOptions(LlmInference.Backend.GPU))
+            } catch (e: Exception) {
+                Log.w(TAG, "GPU backend unavailable, falling back to default backend", e)
+                LlmInference.createFromOptions(context, engineOptions(null))
+            }
         }
     }
 
@@ -93,6 +102,9 @@ class LocalVlmClient(
             val detection = DetectionParsing.parse(objJson) ?: continue
             results.add(detection)
             onDetection(detection)
+        }
+        if (results.isEmpty()) {
+            Log.w(TAG, "detectObjects: nothing parsed. Raw model output: ${text.take(500)}")
         }
         return results
     }

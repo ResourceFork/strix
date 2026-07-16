@@ -1,5 +1,6 @@
 package com.resourcefork.rccontrol
 
+import android.util.Log
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -34,6 +35,7 @@ internal object DetectionParsing {
             val box = dto.box
             val label = dto.label
             if (label.isNullOrBlank() || box == null || box.size < 4) {
+                Log.w(TAG, "Detection object missing label/box: ${objJson.take(300)}")
                 null
             } else {
                 // Some models emit 0..1000 (Gemini style) instead of 0..1. Auto-scale.
@@ -51,9 +53,12 @@ internal object DetectionParsing {
                     confidence = dto.confidence?.coerceIn(0f, 1f),
                 )
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Detection object failed to parse: ${objJson.take(300)} (${e.message})")
             null
         }
+
+    private const val TAG = "DetectionParsing"
 
     @Serializable
     private data class DetectionDto(

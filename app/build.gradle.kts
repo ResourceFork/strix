@@ -60,7 +60,7 @@ dependencies {
     // USB serial – communication with Arduino Nano (CH340 USB-to-serial)
     implementation(libs.usb.serial.android)
 
-    // CameraX – capture frames to send to VLM
+    // CameraX – live preview surface + frame capture for the VLM
     implementation(libs.camera.core)
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
@@ -77,6 +77,10 @@ dependencies {
     // that LlmInferenceSession.addImage() requires for multimodal (vision) prompts.
     implementation(libs.mediapipe.tasks.genai)
     implementation(libs.mediapipe.tasks.core)
+
+    // LiteRT interpreter (classic org.tensorflow.lite API) – runs the monocular depth
+    // model (MiDaS small .tflite) that powers the geometry reflex layer.
+    implementation(libs.litert)
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
