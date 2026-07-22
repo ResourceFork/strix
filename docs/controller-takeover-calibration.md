@@ -2,7 +2,7 @@
 
 A fill-in checklist for the [controller-takeover](controller-takeover.md) build.
 Work top to bottom, write your measured values in the blanks, then copy the final
-numbers into `arduino/MultiChannelController_Digipot/MultiChannelController_Digipot.ino`.
+numbers into `arduino/ControllerTakeover/ControllerTakeover.ino`.
 
 Do everything from "Bench test" onward with the **car's wheels off the ground.**
 
@@ -85,7 +85,7 @@ Then disarm and confirm the parked state:
 ## 5. Copy final values into the firmware
 
 Paste your measured numbers into the CALIBRATION block of
-`MultiChannelController_Digipot.ino`, then re-flash:
+`ControllerTakeover.ino`, then re-flash:
 
 ```cpp
 const int THR_MIN     = ____;  // full reverse

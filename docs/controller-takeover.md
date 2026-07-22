@@ -171,10 +171,10 @@ free digital pins work for the CS lines.)
 ## Firmware changes (Nano)
 
 A ready-to-flash variant lives at
-**`arduino/MultiChannelController_Digipot/MultiChannelController_Digipot.ino`** —
+**`arduino/ControllerTakeover/ControllerTakeover.ino`** —
 open it, fill in the calibration constants (next section), and upload. The
 command parsing (`A:`, `T1:`, `T2:`, `?`) is byte-for-byte identical to
-`arduino/MultiChannelController/MultiChannelController.ino`; only the *output*
+`arduino/EscServoController/EscServoController.ino`; only the *output*
 changes: instead of `Servo.writeMicroseconds()`, it sets a digipot wiper. The
 relevant pieces:
 
@@ -325,7 +325,7 @@ model's bind steps in its manual.
 
 - The "normal" wired-ESC guide: [`hardware-wiring.md`](hardware-wiring.md)
 - Calibration worksheet: [`controller-takeover-calibration.md`](controller-takeover-calibration.md)
-- Ready-to-flash firmware: `arduino/MultiChannelController_Digipot/MultiChannelController_Digipot.ino`
-- Original servo/ESC firmware: `arduino/MultiChannelController/MultiChannelController.ino`
+- Ready-to-flash firmware: `arduino/ControllerTakeover/ControllerTakeover.ino`
+- Original servo/ESC firmware: `arduino/EscServoController/EscServoController.ino`
 - App-side serial protocol (unchanged): `app/.../MotorController.kt`
 - Action → throttle/steering mapping: `app/.../DriveCommand.kt`

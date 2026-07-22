@@ -24,7 +24,7 @@ actually move the car.
 
 ## Which Nano pin does what
 
-This comes straight from `arduino/MultiChannelController/MultiChannelController.ino`
+This comes straight from `arduino/EscServoController/EscServoController.ino`
 and the app's `MotorController.kt`, so it matches the firmware exactly.
 
 | Nano pin | Channel | Wired to | Value range in the app |
@@ -392,6 +392,6 @@ the ESC or invert throttle in software.
 
 ## Reference
 
-- Firmware + full pin map: `arduino/MultiChannelController/MultiChannelController.ino`
+- Firmware + full pin map: `arduino/EscServoController/EscServoController.ino`
 - App-side serial API and protocol: `app/.../MotorController.kt`
 - Action → motor mapping (how "TURN_LEFT" becomes throttle+steering): `app/.../DriveCommand.kt`

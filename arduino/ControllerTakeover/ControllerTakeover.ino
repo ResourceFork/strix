@@ -2,7 +2,7 @@
   Multi-channel serial controller for Arduino Nano
   -- DIGIPOT / CONTROLLER-TAKEOVER variant
 
-  Drop-in alternative to MultiChannelController.ino for cars whose ESC is a
+  Drop-in alternative to EscServoController.ino for cars whose ESC is a
   sealed receiver+ESC combo that can't be wired to a signal pin (e.g. Hosim
   X15W). Instead of emitting servo/ESC pulses, this variant drives two SPI
   digital potentiometers that replace the trigger and steering-wheel pots
