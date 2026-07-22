@@ -23,7 +23,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,9 +47,7 @@ import kotlin.math.abs
  * - The raw command string of the most-recent operation.
  */
 @Composable
-fun MockReceiverPanel(mockController: MockMotorController, modifier: Modifier = Modifier) {
-    val state by mockController.mockState.collectAsState()
-
+fun MockReceiverPanel(state: MockMotorController.MockState, modifier: Modifier = Modifier) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // ── Header ───────────────────────────────────────────────────────────
         Row(

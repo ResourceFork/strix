@@ -67,8 +67,6 @@ fun DrivePad(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Drive Pad", style = MaterialTheme.typography.titleSmall)
-
         // Depth-only reactive autopilot: the geometry layer drives directly, no VLM.
         Row(
             verticalAlignment = Alignment.CenterVertically,
