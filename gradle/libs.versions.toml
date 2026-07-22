@@ -1,6 +1,6 @@
 [versions]
 agp = "9.2.1"
-kotlin = "2.4.0"
+kotlin = "2.4.10"
 compose-bom = "2026.06.01"
 core-ktx = "1.19.0"
 lifecycle = "2.11.0"
@@ -14,7 +14,10 @@ uvcandroid = "1.0.13"
 material = "1.14.0"
 androidx-browser = "1.10.0"
 mediapipe = "0.10.35"
-mediapipe-core = "0.10.28"
+# litert is PINNED: 2.x (up to 2.1.6) fails AGP 9's manifest merge because litert and its
+# litert-api dependency both declare the namespace "com.google.ai.edge.litert", and AGP 9
+# requires unique per-library namespaces with no opt-out. Re-try when Google ships an
+# artifact with distinct namespaces. 1.x fully supports the Interpreter API we use.
 litert = "1.4.2"
 junit = "4.13.2"
 
@@ -40,7 +43,7 @@ usb-serial-android = { group = "com.github.mik3y", name = "usb-serial-for-androi
 uvcandroid = { group = "com.herohan", name = "UVCAndroid", version.ref = "uvcandroid" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidx-browser" }
 mediapipe-tasks-genai = { group = "com.google.mediapipe", name = "tasks-genai", version.ref = "mediapipe" }
-mediapipe-tasks-core = { group = "com.google.mediapipe", name = "tasks-core", version.ref = "mediapipe-core" }
+mediapipe-tasks-core = { group = "com.google.mediapipe", name = "tasks-core", version.ref = "mediapipe" }
 litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
