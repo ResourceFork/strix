@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.resourcefork.rccontrol.DriveAction
 import com.resourcefork.rccontrol.DriveCommand
@@ -88,12 +89,13 @@ fun DrivePad(
             )
         }
 
+        // Readout: two fixed single lines (direction, then analysis) so varying reason lengths
+        // can never wrap and reflow the pad while the reflex driver streams commands.
         Text(
             when {
                 reflexDriveEnabled ->
                     lastCommand?.let {
-                        "Auto: ${it.action.name.lowercase()} (${it.speed.name.lowercase()})" +
-                            (if (it.reason.isNotBlank()) " \u2013 ${it.reason}" else "")
+                        "Auto: ${it.action.name.lowercase()} (${it.speed.name.lowercase()})"
                     } ?: "Waiting for depth\u2026"
                 enabled ->
                     lastCommand?.let {
@@ -103,7 +105,20 @@ fun DrivePad(
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
+        if (reflexDriveEnabled) {
+            // Always present while the reflex driver is on (blank when there's no reason yet),
+            // so the line count – and therefore the layout height – stays constant.
+            Text(
+                lastCommand?.reason.orEmpty().ifBlank { " " },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
         // Speed bucket selector – the same vocabulary the VLM pilot chooses from.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -214,6 +229,26 @@ fun DrivePad(
         }
     }
 }
+
+/**
+ * The icon (and whether it should be flipped vertically) representing each [DriveAction]. Shared by
+ * the drive pad and the camera preview's action badge so the two always agree. The reverse family
+ * reuses the forward icons, mirrored vertically, exactly like the pad rows.
+ */
+fun driveActionIcon(action: DriveAction): Pair<ImageVector, Boolean> =
+    when (action) {
+        DriveAction.FORWARD -> Icons.Default.ArrowUpward to false
+        DriveAction.VEER_LEFT -> Icons.Default.TurnSlightLeft to false
+        DriveAction.VEER_RIGHT -> Icons.Default.TurnSlightRight to false
+        DriveAction.TURN_LEFT -> Icons.Default.TurnLeft to false
+        DriveAction.TURN_RIGHT -> Icons.Default.TurnRight to false
+        DriveAction.REVERSE -> Icons.Default.ArrowDownward to false
+        DriveAction.REVERSE_VEER_LEFT -> Icons.Default.TurnSlightLeft to true
+        DriveAction.REVERSE_VEER_RIGHT -> Icons.Default.TurnSlightRight to true
+        DriveAction.REVERSE_TURN_LEFT -> Icons.Default.TurnLeft to true
+        DriveAction.REVERSE_TURN_RIGHT -> Icons.Default.TurnRight to true
+        DriveAction.STOP -> Icons.Default.Stop to false
+    }
 
 @Composable
 private fun PadButton(

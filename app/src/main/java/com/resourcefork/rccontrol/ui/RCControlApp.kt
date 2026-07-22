@@ -52,7 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.resourcefork.rccontrol.CameraFrameProvider
+import com.resourcefork.rccontrol.CameraSources
 import com.resourcefork.rccontrol.ModelCatalog
 import com.resourcefork.rccontrol.R
 import com.resourcefork.rccontrol.RCViewModel
@@ -67,10 +67,7 @@ import com.resourcefork.rccontrol.RCViewModel
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RCControlApp(
-    viewModel: RCViewModel = viewModel(),
-    cameraFrameProvider: CameraFrameProvider? = null,
-) {
+fun RCControlApp(viewModel: RCViewModel = viewModel(), cameraSources: CameraSources? = null) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -251,12 +248,21 @@ fun RCControlApp(
                 // model is present but silent, and a how-to-enable pointer when absent.
                 val geometryStatus =
                     uiState.corridors?.let { c ->
-                        "Depth · L ${(c.left * 100).toInt()}%  C ${(c.center * 100).toInt()}%  " +
-                            "R ${(c.right * 100).toInt()}%  (nearness – higher = closer)"
+                        c.bands.joinToString(separator = "  ", prefix = "Depth · ") {
+                            "${(it * 100).toInt()}"
+                        } + "\n(L→R % blocked · 0 = open · 100 = at bumper)"
                     }
                         ?: uiState.depthModelName?.let { "Depth · ${it} · waiting for frames…" }
                         ?: ("Depth · no model – reflex layer off. " +
                             "Run scripts/download-depth-model.sh, then Re-scan in Settings.")
+                // Measured forward clearances (corner ultrasonics + center ToF), left→right to
+                // match the depth-band readout above; "–" marks a sensor with no reading.
+                val rangeStatus =
+                    uiState.distances?.let { d ->
+                        fun fmt(v: Int?) = v?.let { "${it}mm" } ?: "–"
+                        "Range · L ${fmt(d.frontLeftMm)} · C ${fmt(d.centerMm)} · " +
+                            "R ${fmt(d.frontRightMm)}"
+                    }
                 // Routes a VLM op to single-shot or continuous execution based on the toggle.
                 // Continuous mode gets a frame *provider* so every iteration uses the freshest
                 // camera frame rather than the one captured at press time.
@@ -266,11 +272,11 @@ fun RCControlApp(
                             op = op,
                             useOnDevice = uiState.useOnDeviceVlm,
                             apiKey = uiState.cloudApiKey,
-                            frameProvider = { cameraFrameProvider?.lastFrame },
+                            frameProvider = { cameraSources?.lastFrame },
                             prompt = prompt,
                         )
                     } else {
-                        cameraFrameProvider?.lastFrame?.let { frame ->
+                        cameraSources?.lastFrame?.let { frame ->
                             viewModel.runVlm(
                                 op = op,
                                 useOnDevice = uiState.useOnDeviceVlm,
@@ -283,22 +289,25 @@ fun RCControlApp(
                 }
                 Card(colors = cardColors()) {
                     CameraSection(
-                        previewView = cameraFrameProvider?.previewView,
+                        previewView = cameraSources?.previewView,
                         vlmOutput = uiState.vlmOutput,
                         vlmRunning = uiState.vlmRunning,
                         cameraPermissionGranted = uiState.cameraPermissionGranted,
-                        cameras = cameraFrameProvider?.availableCameras ?: emptyList(),
-                        selectedCameraId = cameraFrameProvider?.selectedCameraId,
+                        cameras = cameraSources?.availableCameras ?: emptyList(),
+                        selectedCameraId = cameraSources?.selectedCameraId,
                         detections = uiState.detections,
                         corridors = uiState.corridors,
+                        distances = uiState.distances,
+                        driveCommand = uiState.lastDriveCommand,
                         backendStatus = backendStatus,
                         backendReady = backendReady,
                         geometryStatus = geometryStatus,
+                        rangeStatus = rangeStatus,
                         continuousMode = uiState.continuousMode,
                         continuousActive = uiState.continuousActive,
                         onContinuousModeChange = { viewModel.setContinuousMode(it) },
                         onCameraPermissionResult = { viewModel.onCameraPermissionResult(it) },
-                        onSelectCamera = { id -> cameraFrameProvider?.selectCamera(id) },
+                        onSelectCamera = { id -> cameraSources?.select(id) },
                         onAnalyze = { prompt -> runVlmOp(RCViewModel.VlmOp.ANALYZE, prompt) },
                         onDetect = { prompt -> runVlmOp(RCViewModel.VlmOp.DETECT, prompt) },
                         onPilot = { prompt -> runVlmOp(RCViewModel.VlmOp.PILOT, prompt) },

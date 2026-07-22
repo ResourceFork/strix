@@ -106,4 +106,17 @@ class MockMotorController : IMotorController {
         if (!s.connected) return null
         return ControllerStatus(armed = s.armed, throttle = s.throttle.copyOf())
     }
+
+    override fun readDistances(): DistanceReport? {
+        if (!_mockState.value.connected) return null
+        // Slowly-varying synthetic readings so the UI visibly updates in mock mode.
+        val phase = (System.currentTimeMillis() / 400L).toDouble()
+        fun wave(base: Int, amp: Int, offset: Double): Int =
+            (base + amp * kotlin.math.sin(phase / 5.0 + offset)).toInt()
+        return DistanceReport(
+            centerMm = wave(400, 250, 0.0),
+            frontLeftMm = wave(700, 400, 1.5),
+            frontRightMm = wave(1000, 600, 3.0),
+        )
+    }
 }

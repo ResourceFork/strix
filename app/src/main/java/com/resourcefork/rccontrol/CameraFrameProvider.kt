@@ -5,6 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
+import android.hardware.camera2.CameraManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.util.Size
 import androidx.annotation.OptIn
@@ -78,6 +81,8 @@ class CameraFrameProvider(
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private var lastFrameMs = 0L
     private var cameraProvider: ProcessCameraProvider? = null
+    private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    private var availabilityCallback: CameraManager.AvailabilityCallback? = null
 
     // Created at start() and reused across camera switches.
     private var preview: Preview? = null
@@ -121,9 +126,66 @@ class CameraFrameProvider(
                     createUseCases()
                     bindTo(provider, initialId)
                 }
+
+                // Re-enumerate whenever the system's camera set changes (USB OTG hot-plug /
+                // unplug). Note onCameraUnavailable also fires when a camera is merely opened
+                // (including by us), so refreshCameras() must stay cheap and idempotent.
+                availabilityCallback =
+                    object : CameraManager.AvailabilityCallback() {
+                        override fun onCameraAvailable(cameraId: String) {
+                            refreshCameras()
+                        }
+
+                        override fun onCameraUnavailable(cameraId: String) {
+                            refreshCameras()
+                        }
+                    }
+                cameraManager.registerAvailabilityCallback(
+                    availabilityCallback!!,
+                    Handler(Looper.getMainLooper()),
+                )
             },
             ContextCompat.getMainExecutor(context),
         )
+    }
+
+    /**
+     * Re-derives [availableCameras] from the current system state. Called on camera hot-plug /
+     * unplug. If the active camera disappeared (e.g. a USB camera was yanked), falls back to the
+     * default camera so the preview keeps running.
+     */
+    private fun refreshCameras() {
+        val provider = cameraProvider ?: return
+        val fresh = enumerateCameras(provider)
+        if (fresh == availableCameras) return
+
+        Log.i(
+            TAG,
+            "Camera set changed: ${availableCameras.map { it.id }} -> ${fresh.map { it.id }}",
+        )
+        // Diagnostic for HAL/CameraX gaps: warn when Camera2 reports ids CameraX doesn't expose.
+        val halIds =
+            try {
+                cameraManager.cameraIdList.toList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+        val freshIds = fresh.map { it.id }
+        if (halIds.isNotEmpty() && !freshIds.containsAll(halIds)) {
+            Log.w(TAG, "CameraX exposes $freshIds but the HAL reports $halIds")
+        }
+
+        availableCameras = fresh
+
+        val selected = selectedCameraId
+        if (selected != null && fresh.none { it.id == selected }) {
+            val fallback = defaultCameraId(provider) ?: fresh.firstOrNull()?.id
+            if (fallback != null) {
+                bindTo(provider, fallback)
+            } else {
+                selectedCameraId = null
+            }
+        }
     }
 
     /**
@@ -137,8 +199,27 @@ class CameraFrameProvider(
         ContextCompat.getMainExecutor(context).execute { bindTo(provider, cameraId) }
     }
 
+    /**
+     * Unbinds the active camera without tearing anything down – used while a USB (UVC) camera is
+     * the active source so the built-in camera stops streaming. [selectedCameraId] is kept so
+     * [rebind] can restore it.
+     */
+    fun unbind() {
+        val provider = cameraProvider ?: return
+        ContextCompat.getMainExecutor(context).execute { provider.unbindAll() }
+    }
+
+    /** Re-binds the camera kept by [unbind]. No-op before [start] completes. */
+    fun rebind() {
+        val provider = cameraProvider ?: return
+        val id = selectedCameraId ?: return
+        ContextCompat.getMainExecutor(context).execute { bindTo(provider, id) }
+    }
+
     /** Unbinds the camera and shuts down the analysis executor. */
     fun stop() {
+        availabilityCallback?.let { cameraManager.unregisterAvailabilityCallback(it) }
+        availabilityCallback = null
         cameraProvider?.unbindAll()
         analysisExecutor.shutdown()
     }

@@ -44,4 +44,12 @@ interface IMotorController {
 
     /** Pings the controller and returns its current status, or null on timeout / not connected. */
     fun ping(): ControllerStatus?
+
+    /**
+     * Requests the latest readings from the forward-perception array (center ToF + corner
+     * ultrasonics), or null on timeout / not connected. Values are the firmware's most recent
+     * background samples, so this is cheap to poll. Raw and unfiltered – see [DistanceSmoother] for
+     * spike rejection.
+     */
+    fun readDistances(): DistanceReport?
 }

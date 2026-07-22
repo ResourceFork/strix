@@ -22,7 +22,7 @@ import com.resourcefork.rccontrol.ui.theme.StrixTheme
  * Responsibilities:
  * - Handle the Android USB "may this app access this device?" permission flow.
  * - Host the Jetpack Compose UI via [RCControlApp].
- * - Manage the [CameraFrameProvider] lifecycle.
+ * - Manage the [CameraSources] (built-in CameraX + USB/UVC camera backends) lifecycle.
  *
  * After USB permission is granted, [RCViewModel.connect] is called which opens the serial port; the
  * ViewModel then exposes state to the Compose layer.
@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val viewModel: RCViewModel by viewModels()
-    private var cameraFrameProvider: CameraFrameProvider? = null
+    private var cameraSources: CameraSources? = null
 
     // ──────────────────────────────────────────────────────────────────────────
     // USB permission broadcast receiver
@@ -85,23 +85,27 @@ class MainActivity : ComponentActivity() {
 
         requestUsbPermissionIfNeeded()
 
-        // Set up CameraX frame provider (feeds the VLM, the depth reflex layer, and the
-        // low-rate status view).
-        cameraFrameProvider =
+        // Set up both camera backends behind one coordinator: built-in cameras via CameraX and
+        // USB (UVC) webcams via libuvc. Each sampled frame feeds the depth reflex layer (no-op
+        // without a depth model on the device); VLM inference stays manually triggered.
+        val builtinCameras =
             CameraFrameProvider(
                     context = this,
                     lifecycleOwner = this,
-                    // Each sampled frame also feeds the depth reflex layer (no-op without a
-                    // depth model on the device); VLM inference stays manually triggered.
                     onFrame = { jpeg -> viewModel.onCameraFrame(jpeg) },
                 )
                 .also { it.start() }
+        val usbCameras =
+            UsbCameraFrameProvider(
+                    context = this,
+                    onFrame = { jpeg -> viewModel.onCameraFrame(jpeg) },
+                )
+                .also { it.start() }
+        cameraSources = CameraSources(builtin = builtinCameras, usb = usbCameras)
 
         // Compose UI
         setContent {
-            StrixTheme {
-                RCControlApp(viewModel = viewModel, cameraFrameProvider = cameraFrameProvider)
-            }
+            StrixTheme { RCControlApp(viewModel = viewModel, cameraSources = cameraSources) }
         }
     }
 
@@ -122,7 +126,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(usbPermissionReceiver)
-        cameraFrameProvider?.stop()
+        cameraSources?.stop()
     }
 
     // ──────────────────────────────────────────────────────────────────────────

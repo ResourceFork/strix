@@ -10,6 +10,7 @@ okhttp = "5.3.2"
 coroutines = "1.11.0"
 serialization-json = "1.11.0"
 usb-serial = "3.10.0"
+uvcandroid = "1.0.13"
 material = "1.12.0"
 androidx-browser = "1.8.0"
 mediapipe = "0.10.27"
@@ -36,6 +37,7 @@ camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.r
 camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camera" }
 camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camera" }
 usb-serial-android = { group = "com.github.mik3y", name = "usb-serial-for-android", version.ref = "usb-serial" }
+uvcandroid = { group = "com.herohan", name = "UVCAndroid", version.ref = "uvcandroid" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidx-browser" }
 mediapipe-tasks-genai = { group = "com.google.mediapipe", name = "tasks-genai", version.ref = "mediapipe" }
 mediapipe-tasks-core = { group = "com.google.mediapipe", name = "tasks-core", version.ref = "mediapipe-core" }

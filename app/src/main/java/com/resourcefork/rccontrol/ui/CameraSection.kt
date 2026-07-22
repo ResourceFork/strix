@@ -2,9 +2,9 @@ package com.resourcefork.rccontrol.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,11 +38,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -48,6 +52,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -60,6 +65,10 @@ import androidx.core.content.ContextCompat
 import com.resourcefork.rccontrol.CameraOption
 import com.resourcefork.rccontrol.CorridorReport
 import com.resourcefork.rccontrol.Detection
+import com.resourcefork.rccontrol.DistanceReport
+import com.resourcefork.rccontrol.DriveAction
+import com.resourcefork.rccontrol.DriveCommand
+import com.resourcefork.rccontrol.ObstacleField
 import com.resourcefork.rccontrol.R
 
 /**
@@ -75,7 +84,7 @@ import com.resourcefork.rccontrol.R
  */
 @Composable
 fun CameraSection(
-    previewView: PreviewView?,
+    previewView: View?,
     vlmOutput: String,
     vlmRunning: Boolean,
     cameraPermissionGranted: Boolean,
@@ -83,9 +92,12 @@ fun CameraSection(
     selectedCameraId: String?,
     detections: List<Detection>,
     corridors: CorridorReport?,
+    distances: DistanceReport?,
+    driveCommand: DriveCommand?,
     backendStatus: String,
     backendReady: Boolean,
     geometryStatus: String?,
+    rangeStatus: String?,
     continuousMode: Boolean,
     continuousActive: Boolean,
     onContinuousModeChange: (Boolean) -> Unit,
@@ -156,7 +168,12 @@ fun CameraSection(
                         .background(Color.Black)
             ) {
                 if (previewView != null) {
-                    AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+                    // key(): the view instance changes when the user switches between the
+                    // built-in (PreviewView) and USB (SurfaceView) sources; AndroidView must be
+                    // recreated for the new instance rather than reusing the old factory result.
+                    key(previewView) {
+                        AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+                    }
                 }
                 // Depth corridors underneath so detection boxes stay readable on top.
                 if (corridors != null) {
@@ -164,6 +181,45 @@ fun CameraSection(
                 }
                 if (detections.isNotEmpty()) {
                     DetectionOverlay(detections = detections, modifier = Modifier.fillMaxSize())
+                }
+                // "Doing" layer: what action is currently commanded, on top of what it sees.
+                if (driveCommand != null) {
+                    ActionBadge(
+                        command = driveCommand,
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                    )
+                }
+                // Measured readouts, placed to mirror the sensors' physical positions on the
+                // bumper: each pill sits directly above the obstacle-bar segment its sensor
+                // anchors (left/center/right), tying the number to its place in the heatmap.
+                if (distances != null) {
+                    fun anchorBias(anchor: Int): Float =
+                        ((anchor + 0.5f) / ObstacleField.SEGMENT_COUNT) * 2f - 1f
+                    SensorReadout(
+                        formatMm(distances.frontLeftMm),
+                        Modifier.align(BiasAlignment(anchorBias(ObstacleField.ANCHOR_LEFT), 1f))
+                            .padding(bottom = 40.dp),
+                    )
+                    SensorReadout(
+                        formatMm(distances.centerMm),
+                        Modifier.align(BiasAlignment(anchorBias(ObstacleField.ANCHOR_CENTER), 1f))
+                            .padding(bottom = 40.dp),
+                    )
+                    SensorReadout(
+                        formatMm(distances.frontRightMm),
+                        Modifier.align(BiasAlignment(anchorBias(ObstacleField.ANCHOR_RIGHT), 1f))
+                            .padding(bottom = 40.dp),
+                    )
+                }
+                // The fused picture: all four forward sources (camera depth bands + ToF +
+                // corner ultrasonics) aggregated into one segmented strip along the bottom.
+                val obstacleField =
+                    remember(corridors, distances) { ObstacleField.fuse(corridors, distances) }
+                if (obstacleField != null) {
+                    ObstacleBar(
+                        field = obstacleField,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
                 }
             }
 
@@ -177,6 +233,14 @@ fun CameraSection(
             if (geometryStatus != null) {
                 Text(
                     geometryStatus,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
+            }
+            // Measured ranges from the Arduino's sensors (ToF + ultrasonics), when connected.
+            if (rangeStatus != null) {
+                Text(
+                    rangeStatus,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 )
@@ -270,27 +334,33 @@ private fun CameraSelectorDropdown(
 }
 
 /**
- * Shades the three depth-reflex corridors over the lower half of the camera preview – the region
- * [com.resourcefork.rccontrol.DepthEstimator] actually scores (the ground plane ahead of the
- * bumper). Band tint tracks nearness (green = open → red = blocked) with the score printed at
- * the bottom of each band; the center band gains a red outline once it crosses the reflex-veto
- * threshold – the moment a forward command would be converted to STOP.
+ * Shades the depth-reflex bands over the slice of the camera preview that
+ * [com.resourcefork.rccontrol.DepthEstimator] actually scores – between
+ * [CorridorReport.SCORE_WINDOW_TOP] and [CorridorReport.SCORE_WINDOW_BOTTOM], the ground plane
+ * ahead of the bumper, excluding the always-near patch of floor at the bumper itself. Band tint
+ * tracks nearness (green = open → red = blocked) with the score printed at the bottom of each band;
+ * the center band gains a red outline once the *camera layer alone* crosses the veto threshold.
+ * This is a camera-layer diagnostic: the veto itself reads the fused
+ * [com.resourcefork.rccontrol.ObstacleField] (camera + measured sensors), whose aggregate is
+ * rendered by [ObstacleBar].
  *
- * This overlay is passive: it renders whatever the always-on depth layer last reported and needs
- * no button – it appears as soon as a depth model on the device starts producing reports.
+ * This overlay is passive: it renders whatever the always-on depth layer last reported and needs no
+ * button – it appears as soon as a depth model on the device starts producing reports.
  */
 @Composable
 private fun CorridorOverlay(corridors: CorridorReport, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val top = h / 2f
-        val bandH = h - top
-        val bandW = w / 3f
+        val top = h * CorridorReport.SCORE_WINDOW_TOP
+        val bottom = h * CorridorReport.SCORE_WINDOW_BOTTOM
+        val bandH = bottom - top
+        val scores = corridors.bands
+        val bandW = w / scores.size
+        val centerIndex = scores.size / 2
         val strokePx = 2.dp.toPx()
         val textPx = 11.sp.toPx()
         val padPx = 4.dp.toPx()
-        val scores = listOf(corridors.left, corridors.center, corridors.right)
         scores.forEachIndexed { i, score ->
             val x = i * bandW
             drawRect(
@@ -299,7 +369,7 @@ private fun CorridorOverlay(corridors: CorridorReport, modifier: Modifier = Modi
                 size = Size(bandW, bandH),
             )
             // Veto warning: outline the center band once it reads as blocked.
-            if (i == 1 && score >= CorridorReport.BLOCK_THRESHOLD) {
+            if (i == centerIndex && score >= CorridorReport.BLOCK_THRESHOLD) {
                 drawRect(
                     color = Color.Red,
                     topLeft = Offset(x + strokePx / 2, top + strokePx / 2),
@@ -307,6 +377,9 @@ private fun CorridorOverlay(corridors: CorridorReport, modifier: Modifier = Modi
                     style = Stroke(width = strokePx),
                 )
             }
+            // "% blocked": 0% = open, 100% = obstacle at the bumper. (Under the hood it's the
+            // band's relative nearness rank within this frame, but "percent blocked" is the
+            // reading that matters when driving.)
             val label = "${(score * 100).toInt()}%"
             drawIntoCanvas { canvas ->
                 val paint =
@@ -317,7 +390,7 @@ private fun CorridorOverlay(corridors: CorridorReport, modifier: Modifier = Modi
                         textAlign = android.graphics.Paint.Align.CENTER
                         setShadowLayer(3f, 0f, 0f, android.graphics.Color.BLACK)
                     }
-                canvas.nativeCanvas.drawText(label, x + bandW / 2, h - padPx, paint)
+                canvas.nativeCanvas.drawText(label, x + bandW / 2, bottom - padPx, paint)
             }
         }
     }
@@ -396,3 +469,83 @@ private fun DetectionOverlay(detections: List<Detection>, modifier: Modifier = M
         }
     }
 }
+
+/**
+ * Compact badge over the preview showing the current drive [command] as an icon + label – the
+ * "doing" layer of the combined see / think / do view. Uses the same icon vocabulary as the drive
+ * pad ([driveActionIcon]); STOP is tinted red so a halt reads at a glance.
+ */
+@Composable
+private fun ActionBadge(command: DriveCommand, modifier: Modifier = Modifier) {
+    val (icon, flip) = driveActionIcon(command.action)
+    val tint = if (command.action == DriveAction.STOP) Color(0xFFE53935) else Color.White
+    Row(
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color.Black.copy(alpha = 0.55f))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = command.action.name,
+            tint = tint,
+            modifier = (if (flip) Modifier.graphicsLayer { scaleY = -1f } else Modifier).size(18.dp),
+        )
+        Text(
+            command.action.name.lowercase().replace('_', ' '),
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+        )
+    }
+}
+
+/**
+ * The fused obstacle strip: [ObstacleField.SEGMENT_COUNT] segments across the forward arc, left →
+ * right, each tinted by the aggregate nearness of everything the car senses in that direction
+ * (camera depth bands + ToF + corner ultrasonics, pessimistic max). Green = open, red = blocked;
+ * this is the single picture the "should I advance?" decision reads.
+ */
+@Composable
+private fun ObstacleBar(field: ObstacleField, modifier: Modifier = Modifier) {
+    // One continuous strip: segments butt against each other with no gaps, and only the strip's
+    // end caps are rounded (a single clip on the row; the segments themselves are rectangles).
+    Row(
+        modifier =
+            modifier.fillMaxWidth().height(32.dp).padding(2.dp).clip(RoundedCornerShape(6.dp))
+    ) {
+        field.segments.forEach { nearness ->
+            Box(
+                modifier =
+                    Modifier.weight(1f)
+                        .fillMaxHeight()
+                        .background(nearnessColor(nearness).copy(alpha = 0.85f))
+            )
+        }
+    }
+}
+
+/** One measured-distance pill over the preview ("43cm", "1.2m", or "–" for no reading). */
+@Composable
+private fun SensorReadout(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = Color.White,
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color.Black.copy(alpha = 0.55f))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+/** Millimeters -> compact human units with at most one decimal place: "43cm", "1.2m", "–". */
+private fun formatMm(mm: Int?): String =
+    when {
+        mm == null -> "\u2013"
+        mm < 1000 -> "${mm / 10}cm"
+        else -> "%.1fm".format(mm / 1000f)
+    }

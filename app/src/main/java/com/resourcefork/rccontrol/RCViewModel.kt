@@ -40,6 +40,7 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         val continuousMode: Boolean = false, // UI toggle: loop the next VLM op until turned off
         val continuousActive: Boolean = false, // a continuous loop is currently running
         val corridors: CorridorReport? = null, // latest depth reflex-layer reading
+        val distances: DistanceReport? = null, // latest measured ranges (ToF + ultrasonics)
         val depthModelName: String? = null, // null = no depth model, reflex layer inactive
         val reflexDriveEnabled: Boolean = false, // depth-only reactive autopilot on/off
         val useOnDeviceVlm: Boolean = true,
@@ -173,15 +174,52 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(isConnected = ok, errorMessage = if (ok) null else "Connection failed")
             }
+            if (ok) startDistancePolling()
         }
     }
 
     fun disconnect() {
+        stopDistancePolling()
         viewModelScope.launch(Dispatchers.IO) {
             commandChannel.send(Command.Disarm)
             activeController.disconnect()
             _uiState.update { it.copy(isConnected = false, isArmed = false) }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Distance telemetry (ToF + ultrasonics via the Arduino)
+    // -------------------------------------------------------------------------
+
+    private var distancePollJob: Job? = null
+    private val distanceSmoother = DistanceSmoother()
+
+    /**
+     * Polls the forward-perception array while connected. Request/response over the same serial
+     * link the drive commands use: this is the app's only reader, and writes are atomic per
+     * command, so the poller can run alongside the command worker safely. Raw reports pass through
+     * [DistanceSmoother] so single-sample ultrasonic ghosts/dropouts never reach consumers.
+     */
+    private fun startDistancePolling() {
+        distancePollJob?.cancel()
+        distanceSmoother.reset()
+        distancePollJob =
+            viewModelScope.launch(Dispatchers.IO) {
+                while (isActive && _uiState.value.isConnected) {
+                    val report = activeController.readDistances()
+                    if (report != null) {
+                        val smoothed = distanceSmoother.smooth(report)
+                        _uiState.update { it.copy(distances = smoothed) }
+                    }
+                    delay(DISTANCE_POLL_MS)
+                }
+            }
+    }
+
+    private fun stopDistancePolling() {
+        distancePollJob?.cancel()
+        distancePollJob = null
+        _uiState.update { it.copy(distances = null) }
     }
 
     // -------------------------------------------------------------------------
@@ -227,6 +265,7 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         val current = _uiState.value
         val newMode = !current.isMockMode
         val controllerToDisconnect = if (current.isMockMode) mockController else realController
+        stopDistancePolling()
         viewModelScope.launch(Dispatchers.IO) {
             if (current.isConnected) {
                 controllerToDisconnect.disarm()
@@ -593,12 +632,16 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
                 val report = estimator.estimateCorridors(frameJpeg)
                 if (report != null) {
                     _uiState.update { it.copy(corridors = report) }
-                    // Depth-only reactive driver: turn each fresh reading into a drive command.
-                    // The decision is always recorded (visible in the drive pad); actuation is
-                    // gated on connected+armed inside dispatchDriveCommand, so this is safe to
-                    // watch against the mock receiver before touching real hardware.
+                    // Reactive driver: fuse this fresh depth reading with the latest measured
+                    // distances and turn the combined field into a drive command. The decision
+                    // is always recorded (visible in the drive pad); actuation is gated on
+                    // connected+armed inside dispatchDriveCommand, so this is safe to watch
+                    // against the mock receiver before touching real hardware.
                     if (_uiState.value.reflexDriveEnabled) {
-                        val command = ReflexPilot.decide(report)
+                        val field = ObstacleField.fuse(report, _uiState.value.distances)
+                        val command =
+                            if (field != null) ReflexPilot.decide(field)
+                            else DriveCommand(DriveAction.STOP, reason = "no fresh sensing")
                         _uiState.update { it.copy(lastDriveCommand = command) }
                         dispatchDriveCommand(command)
                     }
@@ -624,15 +667,28 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Ground-truth geometry line injected into the pilot prompt, or null when the reflex layer has
-     * no fresh reading.
+     * Ground-truth geometry line injected into the pilot prompt, built from the fused
+     * [ObstacleField] (camera depth + measured sensors), plus absolute measured distances when
+     * available. Null when nothing fresh is sensing.
      */
     private fun geometryHint(): String? {
-        val c = _uiState.value.corridors?.takeIf { it.isFresh() } ?: return null
-        return "A depth sensor reports obstacle proximity (trust it over visual guessing): " +
-            "left ${(c.left * 100).toInt()}%, center ${(c.center * 100).toInt()}%, " +
-            "right ${(c.right * 100).toInt()}% " +
-            "(100% = touching the car, under 40% = open space)."
+        val s = _uiState.value
+        val field = ObstacleField.fuse(s.corridors, s.distances) ?: return null
+        val labels = listOf("far-left", "left", "center", "right", "far-right")
+        val readings =
+            field.zones
+                .mapIndexed { i, v -> "${labels[i]} ${(v * 100).toInt()}%" }
+                .joinToString(", ")
+        val measured =
+            s.distances
+                ?.takeIf { it.isFresh() }
+                ?.let { d ->
+                    fun m(v: Int?) = v?.let { "%.1fm".format(it / 1000f) } ?: "no reading"
+                    " Measured distances: left ${m(d.frontLeftMm)}, center ${m(d.centerMm)}, " +
+                        "right ${m(d.frontRightMm)}."
+                } ?: ""
+        return "Obstacle sensors report proximity (trust them over visual guessing): " +
+            "$readings (100% = touching the car, under 40% = open space).$measured"
     }
 
     // -------------------------------------------------------------------------
@@ -650,7 +706,9 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     fun driveAction(action: DriveAction, speed: DriveSpeed = DriveSpeed.SLOW) {
         val command = DriveCommand(action, speed)
         _uiState.update { it.copy(lastDriveCommand = command) }
-        dispatchDriveCommand(command)
+        // Drive-pad presses are direct human control (like the joystick), so they bypass the
+        // depth reflex veto. The veto is there to gate autonomous driving, not manual commands.
+        dispatchDriveCommand(command, bypassReflexVeto = true)
     }
 
     /**
@@ -718,30 +776,33 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
      * Sends [command] to the motors, bounded by the [DRIVE_STEP_DURATION_MS] watchdog so a single
      * decision can never drive the car indefinitely. No-op unless connected **and armed**.
      *
-     * Reflex veto: when the depth layer has a fresh reading showing the center corridor blocked,
-     * commands that keep substantial forward motion (FORWARD, VEER_*) are replaced with STOP –
-     * regardless of what the VLM (or drive pad) asked for. Full-lock turns and everything in
-     * reverse stay allowed so the car can still escape a blocked position. The joystick bypasses
-     * this entirely (direct human control).
+     * Reflex veto: for autonomous decisions (the VLM pilot and the reflex autopilot), when the
+     * fused [ObstacleField] (camera depth + measured sensors) shows the driving lane blocked,
+     * commands that keep substantial forward motion (FORWARD, VEER_*) are replaced with STOP.
+     * Full-lock turns and everything in reverse stay allowed so the car can still escape a blocked
+     * position. Direct human control bypasses the veto entirely: the joystick, and the drive pad
+     * via [bypassReflexVeto].
      */
-    private fun dispatchDriveCommand(command: DriveCommand) {
+    private fun dispatchDriveCommand(command: DriveCommand, bypassReflexVeto: Boolean = false) {
         val s = _uiState.value
         if (!s.isConnected || !s.isArmed) return
 
         var effective = command
-        val corridors = s.corridors
+        // The veto reads the fused field, not just the camera: it works from measured sensors
+        // alone (no depth model needed), from the camera alone, or both – whatever is fresh.
+        val field = ObstacleField.fuse(s.corridors, s.distances)
         val intoBlockage =
-            command.action in REFLEX_VETOED_ACTIONS &&
-                corridors != null &&
-                corridors.isFresh() &&
-                corridors.centerBlocked
+            !bypassReflexVeto &&
+                command.action in REFLEX_VETOED_ACTIONS &&
+                field != null &&
+                field.centerBlocked
         if (intoBlockage) {
-            val pct = ((corridors?.center ?: 0f) * 100).toInt()
-            Log.w(TAG, "Reflex veto: center corridor $pct% blocked – ${command.action} → STOP")
+            val pct = ((field?.center ?: 0f) * 100).toInt()
+            Log.w(TAG, "Reflex veto: fused center $pct% blocked – ${command.action} → STOP")
             _uiState.update {
                 it.copy(
                     vlmOutput =
-                        it.vlmOutput + "\nREFLEX VETO: obstacle ahead (depth $pct%) – stopped."
+                        it.vlmOutput + "\nREFLEX VETO: obstacle ahead (fused $pct%) – stopped."
                 )
             }
             effective = DriveCommand(DriveAction.STOP)
@@ -750,14 +811,27 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
         driveStopJob?.cancel()
         commandChannel.trySend(Command.Drive(vector.throttle, vector.steering))
-        _uiState.update { st -> st.copy(throttle = intArrayOf(vector.throttle, vector.steering)) }
+        // Track the command actually sent to the motors (post-veto), so the preview action badge
+        // reflects what the car is doing rather than what was merely requested.
+        _uiState.update { st ->
+            st.copy(
+                throttle = intArrayOf(vector.throttle, vector.steering),
+                lastDriveCommand = effective,
+            )
+        }
 
         if (effective.action != DriveAction.STOP) {
             driveStopJob =
                 viewModelScope.launch(Dispatchers.IO) {
                     delay(DRIVE_STEP_DURATION_MS)
                     commandChannel.trySend(Command.Drive(0, 0))
-                    _uiState.update { st -> st.copy(throttle = intArrayOf(0, 0)) }
+                    // Step elapsed → car is back at neutral; the current action is now STOP.
+                    _uiState.update { st ->
+                        st.copy(
+                            throttle = intArrayOf(0, 0),
+                            lastDriveCommand = DriveCommand(DriveAction.STOP),
+                        )
+                    }
                 }
         }
     }
@@ -799,6 +873,9 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
         /** How long a single drive step (pilot or pad) may run the motors before auto-stop. */
         const val DRIVE_STEP_DURATION_MS = 1500L
+
+        /** Distance-sensor poll interval (~5Hz – matches the firmware's sampling cadence). */
+        const val DISTANCE_POLL_MS = 200L
 
         /**
          * Breather between continuous-loop iterations (UI settle + avoid hammering the backend).

@@ -14,7 +14,8 @@ import kotlin.concurrent.withLock
  *
  * Wire protocol (newline-terminated ASCII): A:1 – arm (required before throttle commands take
  * effect) A:0 – disarm (all channels neutral) T<ch>:<v> – set channel ch (1–2) to v (-100…100) ? –
- * ping; reply is "OK:<armed>:<t1>:<t2>:<t3>"
+ * ping; reply is "OK:<armed>:<t1>:<t2>:<t3>" D? – distances; reply is
+ * "D:<center>,<frontLeft>,<frontRight>" (mm, -1 = no reading)
  *
  * All public methods are safe to call from any thread.
  */
@@ -129,8 +130,20 @@ class MotorController(private val context: Context) : IMotorController {
      */
     override fun ping(): ControllerStatus? {
         sendCommand("?")
-        val raw = readLine() ?: return null
+        val raw = readLineWithPrefix("OK:") ?: return null
         return parseStatus(raw)
+    }
+
+    /**
+     * Requests the firmware's latest distance-sensor samples ("D?" ->
+     * "D:<center>,<frontLeft>,<frontRight>").
+     *
+     * @return Parsed [DistanceReport], or null on timeout / parse error.
+     */
+    override fun readDistances(): DistanceReport? {
+        sendCommand("D?")
+        val raw = readLineWithPrefix("D:") ?: return null
+        return DistanceReport.parse(raw)
     }
 
     /**
@@ -180,14 +193,25 @@ class MotorController(private val context: Context) : IMotorController {
         }
     }
 
-    /** Reads one newline-terminated line from the serial port, or returns null on timeout. */
-    private fun readLine(): String? {
+    /**
+     * Reads newline-terminated lines from the serial port until one starts with [prefix], or the
+     * timeout elapses. Non-matching lines are drained and discarded: the firmware acknowledges
+     * every command (SET:/ARMED/…) but nothing consumes those acknowledgements, so the buffer
+     * usually holds stale lines ahead of the reply we actually asked for.
+     */
+    private fun readLineWithPrefix(prefix: String): String? {
         val buf = ByteArray(READ_BUFFER_SIZE)
         val sb = StringBuilder()
         val deadline = System.currentTimeMillis() + READ_TIMEOUT_MS
         lock.withLock {
             val p = port ?: return null
             while (System.currentTimeMillis() < deadline) {
+                // Consume any complete lines already buffered.
+                while (sb.contains('\n')) {
+                    val line = sb.toString().substringBefore('\n').trim()
+                    sb.delete(0, sb.indexOf("\n") + 1)
+                    if (line.startsWith(prefix)) return line
+                }
                 try {
                     val n =
                         p.read(
@@ -195,9 +219,7 @@ class MotorController(private val context: Context) : IMotorController {
                             (deadline - System.currentTimeMillis()).toInt().coerceAtLeast(1),
                         )
                     if (n > 0) {
-                        val chunk = String(buf, 0, n, Charsets.US_ASCII)
-                        sb.append(chunk)
-                        if (sb.contains('\n')) return sb.toString().substringBefore('\n').trim()
+                        sb.append(String(buf, 0, n, Charsets.US_ASCII))
                     }
                 } catch (_: Exception) {
                     return null

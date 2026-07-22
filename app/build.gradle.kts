@@ -60,6 +60,10 @@ dependencies {
     // USB serial – communication with Arduino Nano (CH340 USB-to-serial)
     implementation(libs.usb.serial.android)
 
+    // USB (UVC) cameras – phones like the Razr lack the external-camera HAL, so OTG webcams
+    // (e.g. Arducam) are driven directly over libusb/libuvc instead of Camera2/CameraX.
+    implementation(libs.uvcandroid)
+
     // CameraX – live preview surface + frame capture for the VLM
     implementation(libs.camera.core)
     implementation(libs.camera.camera2)
