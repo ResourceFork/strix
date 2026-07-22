@@ -51,6 +51,15 @@ class VlmClient(
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
+     * Suppresses chain-of-thought "thinking" on servers that support the flag (e.g. Ollama with
+     * Qwen3-style models): the model answers immediately instead of emitting a reasoning block
+     * first, which matters most for pilot-step latency. OpenAI's API rejects unknown request
+     * parameters, so the flag is omitted for api.openai.com.
+     */
+    private val thinkFieldJson: String =
+        if (baseUrl.contains("api.openai.com")) "" else """"think": false,"""
+
+    /**
      * Sends [imageBytes] (JPEG) + [prompt] to the VLM and delivers each streamed text token to
      * [onToken]. Runs **synchronously** – call from a background thread / coroutine.
      *
@@ -153,6 +162,7 @@ class VlmClient(
         {
           "model": "$model",
           "stream": true,
+          $thinkFieldJson
           "messages": [
             {
               "role": "user",
