@@ -216,7 +216,14 @@ fun MainScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         )
-                        VirtualJoystick(onInput = actions.onJoystickInput)
+                        // Thrust-inverse cooldown: the half of the stick (and pad row) opposite
+                        // the most recent thrust direction locks until the car has had
+                        // THRUST_INVERSE_COOLDOWN of no-throttle to stop.
+                        VirtualJoystick(
+                            topHalfDisabled = uiState.forwardLockout,
+                            bottomHalfDisabled = uiState.reverseLockout,
+                            onInput = actions.onJoystickInput,
+                        )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         DrivePad(
                             enabled = uiState.isConnected && uiState.isArmed,
@@ -225,6 +232,8 @@ fun MainScreen(
                             reflexDriveAvailable = uiState.depthModelName != null,
                             onReflexDriveChange = actions.onReflexDriveChange,
                             onAction = actions.onDriveAction,
+                            forwardLockout = uiState.forwardLockout,
+                            reverseLockout = uiState.reverseLockout,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

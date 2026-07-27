@@ -57,10 +57,17 @@ fun DrivePad(
     onReflexDriveChange: (Boolean) -> Unit,
     onAction: (DriveAction, DriveSpeed) -> Unit,
     modifier: Modifier = Modifier,
+    forwardLockout: Boolean = false,
+    reverseLockout: Boolean = false,
 ) {
     var speed by rememberSaveable { mutableStateOf(DriveSpeed.SLOW) }
     // Manual pad controls yield to the reactive driver while it's on.
     val manualEnabled = enabled && !reflexDriveEnabled
+    // Thrust-inverse cooldown: while the opposite thrust direction ran within the last
+    // THRUST_INVERSE_COOLDOWN, that family of buttons is locked out (mirrors the joystick
+    // halves). Stop is never locked.
+    val forwardEnabled = manualEnabled && !forwardLockout
+    val reverseEnabled = manualEnabled && !reverseLockout
 
     Column(
         modifier = modifier,
@@ -134,35 +141,35 @@ fun DrivePad(
             PadButton(
                 icon = Icons.Default.TurnLeft,
                 contentDescription = "Turn left (full lock)",
-                enabled = manualEnabled,
+                enabled = forwardEnabled,
             ) {
                 onAction(DriveAction.TURN_LEFT, speed)
             }
             PadButton(
                 icon = Icons.Default.TurnSlightLeft,
                 contentDescription = "Veer left",
-                enabled = manualEnabled,
+                enabled = forwardEnabled,
             ) {
                 onAction(DriveAction.VEER_LEFT, speed)
             }
             PadButton(
                 icon = Icons.Default.ArrowUpward,
                 contentDescription = "Drive forward",
-                enabled = manualEnabled,
+                enabled = forwardEnabled,
             ) {
                 onAction(DriveAction.FORWARD, speed)
             }
             PadButton(
                 icon = Icons.Default.TurnSlightRight,
                 contentDescription = "Veer right",
-                enabled = manualEnabled,
+                enabled = forwardEnabled,
             ) {
                 onAction(DriveAction.VEER_RIGHT, speed)
             }
             PadButton(
                 icon = Icons.Default.TurnRight,
                 contentDescription = "Turn right (full lock)",
-                enabled = manualEnabled,
+                enabled = forwardEnabled,
             ) {
                 onAction(DriveAction.TURN_RIGHT, speed)
             }
@@ -188,7 +195,7 @@ fun DrivePad(
             PadButton(
                 icon = Icons.Default.TurnLeft,
                 contentDescription = "Reverse turn left (full lock)",
-                enabled = manualEnabled,
+                enabled = reverseEnabled,
                 flipVertically = true,
             ) {
                 onAction(DriveAction.REVERSE_TURN_LEFT, speed)
@@ -196,7 +203,7 @@ fun DrivePad(
             PadButton(
                 icon = Icons.Default.TurnSlightLeft,
                 contentDescription = "Reverse veer left",
-                enabled = manualEnabled,
+                enabled = reverseEnabled,
                 flipVertically = true,
             ) {
                 onAction(DriveAction.REVERSE_VEER_LEFT, speed)
@@ -204,14 +211,14 @@ fun DrivePad(
             PadButton(
                 icon = Icons.Default.ArrowDownward,
                 contentDescription = "Reverse",
-                enabled = manualEnabled,
+                enabled = reverseEnabled,
             ) {
                 onAction(DriveAction.REVERSE, speed)
             }
             PadButton(
                 icon = Icons.Default.TurnSlightRight,
                 contentDescription = "Reverse veer right",
-                enabled = manualEnabled,
+                enabled = reverseEnabled,
                 flipVertically = true,
             ) {
                 onAction(DriveAction.REVERSE_VEER_RIGHT, speed)
@@ -219,7 +226,7 @@ fun DrivePad(
             PadButton(
                 icon = Icons.Default.TurnRight,
                 contentDescription = "Reverse turn right (full lock)",
-                enabled = manualEnabled,
+                enabled = reverseEnabled,
                 flipVertically = true,
             ) {
                 onAction(DriveAction.REVERSE_TURN_RIGHT, speed)

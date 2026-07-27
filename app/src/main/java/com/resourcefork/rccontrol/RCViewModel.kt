@@ -2,6 +2,7 @@ package com.resourcefork.rccontrol
 
 import android.app.Application
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -33,6 +34,8 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
         val isConnected: Boolean = false,
         val isArmed: Boolean = false,
         val throttle: IntArray = intArrayOf(0, 0), // channel 1 (thrust), channel 2 (steer)
+        val forwardLockout: Boolean = false, // forward blocked: reverse ran within the cooldown
+        val reverseLockout: Boolean = false, // reverse blocked: forward ran within the cooldown
         val vlmOutput: String = "",
         val vlmRunning: Boolean = false,
         val detections: List<Detection> = emptyList(),
@@ -237,16 +240,86 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // -------------------------------------------------------------------------
+    // Thrust-inverse cooldown
+    // -------------------------------------------------------------------------
+
+    /** Monotonic timestamp of the last nonzero forward thrust that passed the gate. */
+    @Volatile private var lastForwardThrustMs = Long.MIN_VALUE / 2
+
+    /** Monotonic timestamp of the last nonzero reverse thrust that passed the gate. */
+    @Volatile private var lastReverseThrustMs = Long.MIN_VALUE / 2
+
+    /**
+     * Scheduled recheck that clears [UiState.forwardLockout]/[UiState.reverseLockout] on expiry.
+     */
+    private var lockoutRefreshJob: Job? = null
+
+    /**
+     * The single choke point every thrust value passes through on its way to the motors, enforcing
+     * [THRUST_INVERSE_COOLDOWN]: slamming the drive ESC from forward straight into reverse (or the
+     * other way) at speed can damage the drivetrain, so a direction flip is only honoured after at
+     * least one cooldown period of no thrust in the old direction. A flip requested sooner is
+     * clamped to 0 (neutral) – which itself counts as no-throttle time, so the flip becomes legal
+     * once the cooldown elapses. Same-direction thrust is never delayed.
+     *
+     * Applies to every source equally – joystick, drive pad, VLM pilot, and reflex driver – since
+     * the cooldown protects the hardware from all of them, humans included.
+     */
+    private fun gateThrust(requested: Int): Int {
+        val now = SystemClock.elapsedRealtime()
+        val gated =
+            when {
+                requested > 0 && now - lastReverseThrustMs < THRUST_INVERSE_COOLDOWN -> 0
+                requested < 0 && now - lastForwardThrustMs < THRUST_INVERSE_COOLDOWN -> 0
+                else -> requested
+            }
+        if (gated != requested) {
+            Log.w(TAG, "Thrust-inverse cooldown: thrust $requested → 0")
+        }
+        if (gated > 0) lastForwardThrustMs = now
+        if (gated < 0) lastReverseThrustMs = now
+        refreshThrustLockouts()
+        return gated
+    }
+
+    /**
+     * Recomputes the UI-facing lockout flags from the thrust timestamps and, while either lockout
+     * is active, schedules itself to run again right after the earliest possible expiry – so the
+     * joystick halves and pad rows re-enable on time even when no further input arrives.
+     */
+    private fun refreshThrustLockouts() {
+        val now = SystemClock.elapsedRealtime()
+        // Recent *reverse* locks out forward, and vice versa.
+        val forwardLockout = now - lastReverseThrustMs < THRUST_INVERSE_COOLDOWN
+        val reverseLockout = now - lastForwardThrustMs < THRUST_INVERSE_COOLDOWN
+        _uiState.update {
+            if (it.forwardLockout == forwardLockout && it.reverseLockout == reverseLockout) it
+            else it.copy(forwardLockout = forwardLockout, reverseLockout = reverseLockout)
+        }
+        lockoutRefreshJob?.cancel()
+        if (forwardLockout || reverseLockout) {
+            val remaining =
+                maxOf(lastForwardThrustMs, lastReverseThrustMs) + THRUST_INVERSE_COOLDOWN - now
+            lockoutRefreshJob =
+                viewModelScope.launch {
+                    delay(remaining + 20) // small pad so the recheck lands past expiry
+                    refreshThrustLockouts()
+                }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Driving – thrust + steering via joystick input
     // -------------------------------------------------------------------------
 
     /**
      * Called by the virtual joystick with normalised axes (-1f … 1f). Y maps to thrust (channel 1,
      * drive ESC) and X to the steering servo (channel 2). No mixing – the chassis has separate
-     * powered drive and steering.
+     * powered drive and steering. Thrust passes through [gateThrust], so a fast flick across the
+     * centre line coasts at neutral until the thrust-inverse cooldown elapses.
      */
     fun onJoystickInput(xAxis: Float, yAxis: Float) {
-        val throttle = (yAxis * 100).toInt().coerceIn(-100, 100)
+        val throttle = gateThrust((yAxis * 100).toInt().coerceIn(-100, 100))
         val steering = (xAxis * 100).toInt().coerceIn(-100, 100)
         commandChannel.trySend(Command.Drive(throttle, steering))
 
@@ -808,16 +881,17 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
             effective = DriveCommand(DriveAction.STOP)
         }
         val vector = effective.toDriveVector()
+        // Thrust-inverse cooldown: a direction flip requested too soon after opposite thrust is
+        // clamped to neutral for this step (steering still applies). Deliberately NOT bypassed
+        // for manual control – the cooldown protects the drivetrain from humans too.
+        val thrust = gateThrust(vector.throttle)
 
         driveStopJob?.cancel()
-        commandChannel.trySend(Command.Drive(vector.throttle, vector.steering))
+        commandChannel.trySend(Command.Drive(thrust, vector.steering))
         // Track the command actually sent to the motors (post-veto), so the preview action badge
         // reflects what the car is doing rather than what was merely requested.
         _uiState.update { st ->
-            st.copy(
-                throttle = intArrayOf(vector.throttle, vector.steering),
-                lastDriveCommand = effective,
-            )
+            st.copy(throttle = intArrayOf(thrust, vector.steering), lastDriveCommand = effective)
         }
 
         if (effective.action != DriveAction.STOP) {
@@ -873,6 +947,15 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
         /** How long a single drive step (pilot or pad) may run the motors before auto-stop. */
         const val DRIVE_STEP_DURATION_MS = 1500L
+
+        /**
+         * Minimum no-throttle time (ms) required between forward and reverse thrust, in either
+         * order. Slamming the drive ESC into the opposite direction at speed can damage the
+         * drivetrain, so [gateThrust] holds the flip at neutral until the car has had this long to
+         * coast down, and the UI (joystick halves, pad rows) disables the opposite direction for
+         * the same window. The one knob for the whole behaviour.
+         */
+        const val THRUST_INVERSE_COOLDOWN = 1_000L
 
         /** Distance-sensor poll interval (~5Hz – matches the firmware's sampling cadence). */
         const val DISTANCE_POLL_MS = 200L
