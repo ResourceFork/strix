@@ -213,11 +213,19 @@ harness side on the digipot instead. The servo-style color convention
 | White | WIPER — the signal the controller chip reads | **PW0** (pin 6) |
 
 > **Field note (this build's Hosim controller):** the convention did **not**
-> hold. **Black was the wiper** — it sat on the pot's center terminal, and its
-> resistance to the white wire swept ~26Ω → 4.6kΩ across the trigger's travel,
-> resting mid-track (~2.6k, the spring-return neutral). Red and white were the
-> two ends, and the track measured ~5k nominal. Resistance can't tell HIGH
-> from LOW — the powered DC-volts check settles that.
+> hold. **Black was the wiper** — it sat on the pot's center terminal. On the
+> wheel (steering) pot, measured isolated: black↔white swept ~52Ω (full
+> right) → 4.67kΩ (full left), resting ~2.7k at the spring-return center;
+> black↔red swept the mirror image, 5.2kΩ (right) → ~570Ω (left). The two
+> wiper readings summed to a constant ~5.2k at every position — the
+> healthy-pot proof, and that constant *is* the end-to-end track value
+> (5k nominal). The wiper never reaches the red end (~570Ω floor): the
+> wheel's mechanical travel uses only part of the electrical track. That's
+> normal — but it means the digipot, which has no mechanical stops, can
+> command positions the physical control never could. Calibrate
+> `STR_LEFT`/`STR_RIGHT` (and `THR_MIN`/`THR_MAX`) to the car's actual
+> limits, not the digipot's 0/255 extremes. Resistance can't tell HIGH from
+> LOW — the powered DC-volts check settles that.
 >
 > **Bonus discovery: these pots unplug from the main board** — each pigtail
 > ends in a small connector. That improves the build twice over:
