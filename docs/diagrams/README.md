@@ -13,20 +13,36 @@ build: the Nano synthesizing both controller wiper voltages through RC filters.
 
 ### What's in it
 
-| Element         | Detail                                                                                                                                                               |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Breadboard      | Full-size 830-point (RSR 03MB102)                                                                                                                                    |
-| Arduino Nano    | Rotated 90° **CW** so the USB end faces the left edge; digital side (D1–D12) in row **H**, analog side (VIN/5V/A0/3V3/D13) in row **D**, columns 2–16                |
-| Throttle filter | 4.7 kΩ + 1 µF from **D9**, across the channel at column 20, output at column 24                                                                                      |
-| Steering filter | 4.7 kΩ + 1 µF from **D10**, across the channel at column 32, output at column 36                                                                                     |
-| Ultrasonics     | Two HC-SR04 above the board — TRIG/ECHO on **D2/D3** (front-left) and **D4/D5** (front-right), power from the top rails                                              |
-| Time-of-flight  | 4-pin header standing in for the VL53L4CD, behind a bidirectional I²C level shifter: HV side to **A4/A5 + 5V**, LV side to the module, **3V3 straight off the Nano** |
-| Rails           | Z = top ground, Y = top +5V, X = bottom ground, W = bottom +5V (bridged to Y)                                                                                        |
-| Loose wire ends | Blue → trigger wiper · Green → wheel wiper · Purple → controller rail (A0 sense) · Black → controller ground                                                         |
-| Notes           | Five on-canvas notes covering the circuit, the controller wiring, the ultrasonics, and the 3.3 V rule                                                                |
+| Element            | Detail                                                                                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Breadboard         | Full-size 830-point (RSR 03MB102)                                                                                                                                                                                                     |
+| Arduino Nano       | Rotated 90° **CW** so the USB end faces the left edge; digital side (D1–D12) in row **H**, analog side (VIN/5V/A0/3V3/D13) in row **D**, columns 2–16                                                                                 |
+| Throttle filter    | 4.7 kΩ + 1 µF from **D9**, across the channel at column 20, output at column 24                                                                                                                                                       |
+| Steering filter    | 4.7 kΩ + 1 µF from **D10**, across the channel at column 32, output at column 36                                                                                                                                                      |
+| Ultrasonics        | Two HC-SR04 above the board — TRIG/ECHO on **D2/D3** (front-left) and **D4/D5** (front-right), power from the top rails                                                                                                               |
+| Time-of-flight     | 4-pin header standing in for the VL53L4CD, behind a bidirectional I²C level shifter: HV side to **A4/A5 + 5V**, LV side to the module, **3V3 straight off the Nano**                                                                  |
+| Rails              | Z = top ground, Y = top +5V, X = bottom ground, W = bottom +5V (bridged to Y)                                                                                                                                                         |
+| Controller sockets | Two polarized 3-pin connectors standing in for the sockets the mechanical pots unplug from. **Pin 2 (centre) is the wiper** on both. Pins 1 and 3 are drawn commoned, which is why one rail-sense wire and one ground wire serve both |
+| Notes              | Four on-canvas notes covering the circuit, the controller sockets, the ultrasonics, and the 3.3 V rule                                                                                                                                |
 
 Left/right on the ultrasonics is the **car's** perspective. Placement and aiming
 are in [`sensor-wiring.md`](../sensor-wiring.md).
+
+### Wire colours
+
+Assigned by **role**, so the same signal reads the same everywhere, using
+Fritzing's own palette swatches. Arbitrary hex values do render, but the colour
+picker reports them as custom and they look subtly off beside hand-drawn wires.
+
+| Colour | Swatch    | Role                                                                                      |
+| ------ | --------- | ----------------------------------------------------------------------------------------- |
+| Black  | `#404040` | Ground, every one of them. Fritzing's "black" is dark grey, not `#000000`                 |
+| Red    | `#cc1414` | 5 V                                                                                       |
+| Orange | `#ef6100` | 3.3 V — deliberately distinct from 5 V, because confusing the two destroys the ToF module |
+| Blue   | `#418dd9` | Throttle channel, I²C SDA, ultrasonic ECHO                                                |
+| Green  | `#25cc35` | Steering channel, I²C SCL                                                                 |
+| Yellow | `#fff800` | Ultrasonic TRIG, paired against blue ECHO so the two are never mixed up                   |
+| Purple | `#ab58a2` | Controller rail sense into A0                                                             |
 
 ### Regenerating and validating it
 

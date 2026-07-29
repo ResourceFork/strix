@@ -41,13 +41,26 @@ AI_MARKER = "generator: adobe illustrator"
 NORMAL_WIRE_FLAG = 64
 
 # Wire colours (Fritzing's own palette values).
-BLACK = "#000000"
-RED = "#ff1a1a"
+# Fritzing's own wire-palette swatches. Arbitrary hex values render but do not
+# match any swatch, so the colour picker shows them as custom and they look
+# subtly off next to hand-drawn wires. These are the real values.
+BLACK = "#404040"  # Fritzing's "black" is dark grey, not #000000
+RED = "#cc1414"
 BLUE = "#418dd9"
-GREEN = "#47bb24"
-ORANGE = "#ff7e00"
-PURPLE = "#8c4be8"
+GREEN = "#25cc35"
+ORANGE = "#ef6100"
+PURPLE = "#ab58a2"
+YELLOW = "#fff800"
 WIRE_MILS = "24"
+
+# Colour by ROLE, so the same signal reads the same everywhere:
+#   BLACK  ground, every one of them
+#   RED    5V
+#   ORANGE 3V3 (distinct from 5V on purpose - miswiring these kills the ToF)
+#   BLUE   throttle channel, and I2C SDA, and ultrasonic ECHO
+#   GREEN  steering channel, and I2C SCL
+#   YELLOW ultrasonic TRIG (paired with blue ECHO so the two are never confused)
+#   PURPLE controller rail sense into A0
 
 
 # --------------------------------------------------------------------------
@@ -521,6 +534,9 @@ def build(parts_dir: str, out_path: str) -> int:
     # No VL53L4CD part exists in the library, so a 4-pin header stands in for
     # the module's Qwiic breakout; the note names it explicitly.
     tof_part = Part(parts_dir, "core/sparkfun-connectors-m04-jst-pth.fzp")
+    # A polarized 3-pin connector stands in for the sockets on the controller
+    # board that the trigger and wheel pot harnesses plug into.
+    pot_conn = Part(parts_dir, "core/sparkfun-connectors-m03-polar_lock.fzp")
 
     sk = Sketch(parts_dir)
 
@@ -634,7 +650,6 @@ def build(parts_dir: str, out_path: str) -> int:
     tie(c1, "connector0", 24, "C")
     tie(c1, "connector1", 25, "C")
     wire_hole_to_hole(25, "B", 25, BOT_GND, BLACK, "C1_to_ground")
-    wire_hole_to_free(24, "A", 0, 104, BLUE, "OUT_trigger_wiper")
 
     # ---- steering: D10 -> across the channel -> R2 -> C2 -> ground ----
     wire_hole_to_hole(dig["D10"], "J", 32, "J", GREEN, "D10_run")
@@ -648,11 +663,10 @@ def build(parts_dir: str, out_path: str) -> int:
     tie(c2, "connector0", 36, "C")
     tie(c2, "connector1", 37, "C")
     wire_hole_to_hole(37, "B", 37, BOT_GND, BLACK, "C2_to_ground")
-    wire_hole_to_free(36, "A", 0, 104, GREEN, "OUT_wheel_wiper")
 
-    # ---- controller rail sense (A0) and ground, out to the controller ----
-    wire_hole_to_free(ana["A0"], "A", 0, 104, PURPLE, "IN_controller_rail_sense")
-    wire_hole_to_free(44, BOT_GND, 0, 74, BLACK, "OUT_controller_ground")
+    # Bring the A0 rail-sense net along the board to sit near the connectors,
+    # so its wire out is short instead of crossing the whole sketch.
+    wire_hole_to_hole(ana["A0"], "B", 21, "B", PURPLE, "A0_rail_sense_run")
 
     # ---- ultrasonics: HC-SR04 x2, above the board, on D2..D5 ----
     # D2/D3 (front-left) sit at columns 12/11 and D4/D5 (front-right) at 10/9,
@@ -667,8 +681,8 @@ def build(parts_dir: str, out_path: str) -> int:
     place_by_connector(sr_right, "connector1", dig["D4"], "J")
     sr_right["x"] -= 82.0
     sr_right["y"] -= SR_LIFT
-    wire_conn_to_hole(sr_right, "connector1", dig["D4"], "J", ORANGE, "SR04R_TRIG_D4")
-    wire_conn_to_hole(sr_right, "connector2", dig["D5"], "J", ORANGE, "SR04R_ECHO_D5")
+    wire_conn_to_hole(sr_right, "connector1", dig["D4"], "J", YELLOW, "SR04R_TRIG_D4")
+    wire_conn_to_hole(sr_right, "connector2", dig["D5"], "J", BLUE, "SR04R_ECHO_D5")
     wire_conn_to_hole(sr_right, "connector0", 3, TOP_POS, RED, "SR04R_VCC")
     wire_conn_to_hole(sr_right, "connector3", 5, TOP_GND, BLACK, "SR04R_GND")
 
@@ -676,8 +690,8 @@ def build(parts_dir: str, out_path: str) -> int:
     place_by_connector(sr_left, "connector1", dig["D2"], "J")
     sr_left["x"] += 61.0
     sr_left["y"] -= SR_LIFT
-    wire_conn_to_hole(sr_left, "connector1", dig["D2"], "J", ORANGE, "SR04L_TRIG_D2")
-    wire_conn_to_hole(sr_left, "connector2", dig["D3"], "J", ORANGE, "SR04L_ECHO_D3")
+    wire_conn_to_hole(sr_left, "connector1", dig["D2"], "J", YELLOW, "SR04L_TRIG_D2")
+    wire_conn_to_hole(sr_left, "connector2", dig["D3"], "J", BLUE, "SR04L_ECHO_D3")
     wire_conn_to_hole(sr_left, "connector0", 18, TOP_POS, RED, "SR04L_VCC")
     wire_conn_to_hole(sr_left, "connector3", 19, TOP_GND, BLACK, "SR04L_GND")
 
@@ -718,6 +732,33 @@ def build(parts_dir: str, out_path: str) -> int:
     else:
         print("  ! ToF stand-in part has no usable connector geometry; skipped")
         sk.instances.remove(tof)
+
+    # ---- the handheld controller's two pot connectors -----------------------
+    # These are the sockets the mechanical pots unplug from. Pin 2 (centre) is
+    # the WIPER on both, matching what the meter found on this build. Both
+    # sockets share the controller's rail and ground internally, which is why a
+    # single rail-sense wire and a single ground wire are enough.
+    CONN_Y = BY + bb.scene_h + 96.0
+    PIN_HIGH, PIN_WIPER, PIN_LOW = "connector0", "connector1", "connector2"
+
+    trigger_conn = sk.add_part(pot_conn, BX + 240.0, CONN_Y, "TriggerPotConnector")
+    wheel_conn = sk.add_part(pot_conn, BX + 360.0, CONN_Y, "WheelPotConnector")
+
+    # Filter outputs into each socket's wiper pin.
+    wire_conn_to_hole(trigger_conn, PIN_WIPER, 24, "A", BLUE, "OUT_trigger_wiper")
+    wire_conn_to_hole(wheel_conn, PIN_WIPER, 36, "A", GREEN, "OUT_wheel_wiper")
+    # Rail sense in, ground out. Source columns are ordered left-to-right to
+    # match the pin order so none of these three wires cross each other.
+    wire_conn_to_hole(trigger_conn, PIN_HIGH, 21, "A", PURPLE,
+                      "IN_controller_rail_sense")
+    wire_conn_to_hole(trigger_conn, PIN_LOW, 31, BOT_GND, BLACK,
+                      "OUT_controller_ground")
+    # Commoned inside the controller - drawn so it is obvious why the wheel
+    # socket needs no rail or ground wire of its own.
+    wire_conn_to_conn(trigger_conn, PIN_HIGH, wheel_conn, PIN_HIGH, PURPLE,
+                      "controller_rail_common")
+    wire_conn_to_conn(trigger_conn, PIN_LOW, wheel_conn, PIN_LOW, BLACK,
+                      "controller_ground_common")
 
     # ---- notes ----
     # Vertical zones, so nothing lands on the board or the modules:
@@ -775,19 +816,23 @@ def build(parts_dir: str, out_path: str) -> int:
     sk.add_note(
         BX + 330, NOTE_BELOW_Y, 320, 150,
         note_html(
-            "TO THE HANDHELD CONTROLLER (loose ends, below)\n"
+            "THE HANDHELD CONTROLLER'S POT SOCKETS\n"
             "\n"
-            "BLUE   -> TRIGGER pot WIPER pin\n"
-            "GREEN  -> WHEEL pot WIPER pin\n"
-            "PURPLE -> pot HIGH / rail pin, into A0\n"
-            "BLACK  -> controller GROUND (pot LOW pin)\n"
+            "The two 3-pin connectors are the sockets the mechanical pots\n"
+            "unplug from. On both, pin 2 (CENTRE) is the WIPER - that is\n"
+            "what the meter found on this build, where the BLACK harness\n"
+            "wire was the wiper, not the colour convention's white.\n"
             "\n"
+            "  pin 1 HIGH  - controller rail, sensed by A0 (PURPLE)\n"
+            "  pin 2 WIPER - driven by the RC filter (BLUE / GREEN)\n"
+            "  pin 3 LOW   - controller ground (BLACK)\n"
+            "\n"
+            "Pins 1 and 3 are commoned inside the controller, so one rail\n"
+            "wire and one ground wire serve both sockets.\n"
             "PURPLE is the rail sense: it scales every PWM duty to the\n"
             "sagging AA rail so calibrated neutral cannot drift. Do not\n"
-            "omit it.\n"
-            "Identify which harness wire is the wiper BEFORE cutting - see\n"
-            "docs/pot-identification.md. On this build's Hosim controller\n"
-            "the BLACK harness wire was the wiper."
+            "omit it. Identify the wiper BEFORE cutting anything:\n"
+            "docs/pot-identification.md"
         ),
         "Note_outputs",
     )
@@ -821,6 +866,7 @@ PARTS_SEARCH = [
     "/Applications/Fritzing.app/Contents/Resources/fritzing-parts",
     os.path.expanduser("~/Applications/Fritzing.app/Contents/Resources/fritzing-parts"),
     "/usr/share/fritzing/fritzing-parts",
+    os.path.expanduser("~/Source/fritzing/fritzing-parts"),
     os.path.expanduser("~/Source/fritzing-parts"),
 ]
 
