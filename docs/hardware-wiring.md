@@ -16,7 +16,7 @@ path — then hands off to the focused guides.
 | Guide | What it covers | Read it when |
 | --- | --- | --- |
 | [ESC & servo wiring](esc-wiring.md) | The "normal" drive path: wiring a conventional ESC and steering servo straight to the Nano — pin map, connectors, assembly, first power-on test, troubleshooting | Your ESC has a servo-style signal wire |
-| [Controller takeover](controller-takeover.md) | The sealed-ESC workaround: the Nano drives digital potentiometers planted inside a spare handheld controller, and the controller's stock radio does the rest | Your ESC is a sealed receiver+ESC brick with no signal input |
+| [Controller takeover](controller-takeover.md) | The sealed-ESC workaround: the Nano impersonates the pots of a spare handheld controller (filtered PWM or digipot chips), and the controller's stock radio does the rest | Your ESC is a sealed receiver+ESC brick with no signal input |
 | [Calibration worksheet](controller-takeover-calibration.md) | Fill-in checklist for the takeover build: pot measurements, terminal identification, wiper calibration | You're doing the takeover build |
 | [Sensor wiring](sensor-wiring.md) | The forward-perception array: center VL53L4CD time-of-flight + corner HC-SR04 ultrasonics — placement, pin tables, verification | You're adding measured obstacle distances (works with either drive path) |
 

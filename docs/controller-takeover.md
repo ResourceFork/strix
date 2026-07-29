@@ -33,9 +33,12 @@ and it's already paired. Its trigger and steering wheel are **potentiometers** �
 variable resistors the controller's chip reads as "how far is the trigger
 pulled" and "how far is the wheel turned."
 
-So we let the **Arduino Nano replace the human hand**: it electronically moves
-those two pots via **digital potentiometers**, and the controller transmits the
-result over its normal radio link. The sealed ESC never knows the difference.
+So we let the **Arduino Nano replace the human hand**: it electronically
+replaces those two pots — either with **digital potentiometer chips** or by
+**synthesizing the wiper voltages directly with filtered PWM** (see
+[Pick a variant](#pick-a-variant-digipots-or-pwm)) — and the controller
+transmits the result over its normal radio link. The sealed ESC never knows
+the difference.
 
 Because we're sacrificing a controller to this (its pots get replaced), **buy a
 second controller** and keep your original intact for manual driving. See
@@ -120,7 +123,96 @@ The big advantage: the digipot divides the controller's **own** supply rail, so
 the wiper voltage tracks exactly what the controller expects — you don't have to
 know or match its precise voltage.
 
-## Bill of materials
+## Pick a variant: digipots or PWM
+
+That three-terminal picture hides a shortcut: the controller chip never senses
+resistance — it reads the **voltage** the wiper divider produces. So there are
+two ways to fake a pot, and both have ready-to-flash firmware:
+
+| | **Variant A: digipots** | **Variant B: PWM wiper synthesis** |
+| --- | --- | --- |
+| Extra parts | 2× digipot chip (MCP41010-class) | 2 resistors + 2 capacitors (jellybean parts) |
+| Forward-throttle steps (this build's trigger window) | ~80 (256-tap chip) | ~290 (10-bit PWM) |
+| …with top speed software-capped to ⅓ | ~27 | ~95 |
+| Tracks the controller's sagging AA rail | Inherently (it divides that rail) | Via rail sensing on A0, built into the firmware |
+| Firmware | `arduino/ControllerTakeover/` | `arduino/ControllerTakeoverPwm/` |
+
+Resolution matters more than it first looks: software-capping top speed (which
+an indoor autonomous car with a 60 km/h drivetrain absolutely will) squeezes
+the app's entire 0–100 throttle range into a slice of the physical window,
+dividing the usable step count. That's also why the cheap 100-tap X9C103S
+isn't offered as a variant — under a ⅓ cap it's down to ~10 forward steps,
+noticeably chunky at creep speeds, and its pulse-counted wiper has no position
+readback (a missed pulse becomes a persistent throttle offset).
+
+**This build uses Variant B**: finest control of any option, no special chips,
+and the passives cost less than shipping on the alternatives.
+
+## Variant B: PWM wiper synthesis (no digipots)
+
+The Nano can't *be* a resistor — a GPIO pin is a switch, not a resistance —
+but it doesn't need to be: drive the **wiper wire alone** with PWM smoothed by
+an RC low-pass filter (the classic poor man's DAC) and the controller chip
+sees exactly the voltage a pot would have produced. With this build's
+harness-connector pots the whole job is the pot connectors' wires onto the
+Nano plus four passive parts, and the controller board is never touched.
+
+### Wiring
+
+| Controller wire (board-side pot connector) | Nano connection | Why |
+| --- | --- | --- |
+| Trigger WIPER pin | **D9**, through an RC filter | The voltage the chip reads for throttle |
+| Wheel WIPER pin | **D10**, through an RC filter | Same for steering |
+| HIGH / rail pin (either pot's — they share the rail) | **A0** | Rail sensing (below) |
+| LOW / ground pins | **GND** | Common ground, mandatory as always |
+
+Identify which connector pin is which with the powered socket test in the
+[Wired pots](#wired-pots-red--black--white-harness) field note — that whole
+subsection applies to both variants.
+
+The filter, per channel: series **R ≈ 2.2–4.7kΩ** from the Nano pin to the
+wiper node, then **C ≈ 1–2.2µF** from the wiper node to ground. Values are
+uncritical (R 1–10k, C 0.5–10µF; bigger C = smoother but slower to settle),
+and the element of a sacrificed pot works fine as the R. Capacitors are the
+one part you might not have — any assortment kit covering 1µF does it, e.g.
+a ~$10 [BOJACK 0.1–10µF ceramic kit](https://www.amazon.com/BOJACK-Capacitor-Multilayer-Monolithic-Assortment/dp/B09YV2659V)
+(prices drift; any equivalent works).
+
+D9/D10 are not arbitrary: they're the Nano's **Timer1** pins — the only
+16-bit timer — and the firmware reconfigures it for 10-bit duty at 15.6kHz.
+At that frequency even a low filter corner leaves millivolt ripple. Don't
+move these outputs to other pins.
+
+### Why the rail-sense wire matters
+
+A mechanical pot divides the controller's own battery rail, so when its AAs
+sag from 4.5V to 4.0V everything scales together and the chip (which reads
+ratiometrically against that same rail) never notices. A fixed Nano voltage
+would *not* scale — the calibrated neutral would drift as the batteries
+drain, which on a throttle means a **creeping car**. The firmware fixes this
+by reading the rail on A0 and scaling every duty by it. The Nano's own supply
+voltage cancels out of the math exactly, and as a bonus the duty can never
+exceed the measured rail, so the output can't be driven above the controller
+chip's supply.
+
+### Calibration units
+
+Variant B constants are **rail fractions in 1/1023 units** (0 = controller
+ground, 1023 = controller rail), not the digipot's 0–255 codes. The
+placeholders in `ControllerTakeoverPwm.ino` are pre-seeded from this build's
+measured pot windows; the [calibration procedure](#calibration-procedure) is
+otherwise identical.
+
+### Failure mode to bench-test
+
+If the Nano loses power, the wiper wires float and decay toward 0V — *below*
+the trigger's normal travel window. Before any unattended use, test what the
+controller transmits in that state: wheels off the ground, drive, unplug the
+Nano mid-command, and watch. (Variant A has the mirror-image quirk — a
+digipot holds the last commanded value instead. Neither is inherently safer;
+know yours.)
+
+## Variant A: digipot bill of materials
 
 | Qty | Part | Notes |
 | --- | --- | --- |
@@ -145,7 +237,7 @@ know or match its precise voltage.
 > command format than the MCP41xxx `0x11` write in the sketch, so `setWiper()`
 > needs a small tweak if you choose it.
 
-## Nano pin usage
+## Variant A: Nano pin usage (SPI)
 
 SPI on the Nano (Uno/Nano pinout):
 
@@ -165,7 +257,7 @@ free digital pins work for the CS lines.)
 > ground. Without it, the wiper voltages the digipots produce are meaningless to
 > the controller chip.
 
-## Digipot pin-by-pin (MCP41010)
+## Variant A: digipot pin-by-pin (MCP41010)
 
 The part that trips people up: **the controller's pots never wire to the Nano
 at all.** The mechanical pots come *out*, the digipots take their place inside
@@ -200,6 +292,10 @@ Because the digipot divides the controller's own rail, the wiper voltage
 automatically matches what the controller chip expects.
 
 ### Wired pots (red / black / white harness)
+
+Everything in this subsection is about **identifying** the pot wires, so it
+applies to both variants — Variant B needs the same HIGH/WIPER/LOW roles to
+know which connector pin gets the filtered PWM and which taps the rail.
 
 Some controllers — Hosim's included — don't board-mount the pots: each pot
 hangs off a **3-wire harness**. That's the easy case: nothing to desolder from
@@ -285,13 +381,17 @@ is then just a resolder.
 
 ## Firmware changes (Nano)
 
-A ready-to-flash variant lives at
-**`arduino/ControllerTakeover/ControllerTakeover.ino`** —
-open it, fill in the calibration constants (next section), and upload. The
+Ready-to-flash firmware exists for both variants:
+
+- **Variant A (digipots):** `arduino/ControllerTakeover/ControllerTakeover.ino`
+- **Variant B (PWM):** `arduino/ControllerTakeoverPwm/ControllerTakeoverPwm.ino`
+
+Open yours, fill in the calibration constants (next section), and upload. The
 command parsing (`A:`, `T1:`, `T2:`, `?`) is byte-for-byte identical to
-`arduino/EscServoController/EscServoController.ino`; only the *output*
-changes: instead of `Servo.writeMicroseconds()`, it sets a digipot wiper. The
-relevant pieces:
+`arduino/EscServoController/EscServoController.ino` in both; only the *output
+layer* changes — Variant A sets a digipot wiper over SPI, Variant B sets a
+Timer1 PWM duty scaled by the sensed rail. The excerpts below show the
+digipot flavor:
 
 ```cpp
 #include <SPI.h>
@@ -353,8 +453,10 @@ if (channel == 2) setWiper(CS_STEERING, steeringToWiper(val));
 > **Fill-in worksheet:** [`controller-takeover-calibration.md`](controller-takeover-calibration.md)
 > walks these steps with blanks for every measured value and a checkbox per step.
 
-Because the digipot range rarely maps 1:1 to the controller's full stick travel,
-calibrate once with the **wheels off the ground** and the car powered/paired:
+Because the output range rarely maps 1:1 to the controller's full stick travel,
+calibrate once with the **wheels off the ground** and the car powered/paired.
+The procedure is identical for both variants — only the units differ: Variant A
+constants are 0–255 wiper codes, Variant B constants are 0–1023 rail fractions.
 
 1. Load firmware with rough values (start with the constants above).
 2. Send `A:1` then `T1:0` — the car should sit still. If it creeps, adjust
@@ -372,12 +474,17 @@ Do all first tests with the **car's wheels off the ground**.
 1. **Pair the controller to the car** using its normal bind procedure, and make
    sure it drives the car manually first. Don't modify anything until that works.
 2. **Power off**, open the controller, and locate the trigger and wheel pots.
-3. **Desolder/replace each pot with a digipot**: controller HIGH→PA, WIPER→PW,
-   LOW→PB. Power the digipot's VDD/VSS from the controller's rail and ground
-   (keeping it within the digipot's voltage rating).
-4. **Wire SPI** from the Nano: SCK→D13, MOSI→D11, and each digipot's CS to D7/D8.
+3. **Replace each pot** per your variant:
+   - **A:** digipot onto the pot's pads/connector — HIGH→PA, WIPER→PW, LOW→PB;
+     power its VDD/VSS from the controller's rail and ground (within the chip's
+     voltage rating).
+   - **B:** remove the pot; its WIPER pin gets the RC-filtered output from the
+     Nano, and one HIGH pin taps the rail for sensing (nothing else connects).
+4. **Wire the Nano side** per your variant:
+   - **A (SPI):** SCK→D13, MOSI→D11, each digipot's CS to D7/D8.
+   - **B (PWM):** D9→filter→trigger wiper, D10→filter→wheel wiper, rail→A0.
 5. **Tie grounds together** — Nano GND to the controller ground.
-6. **Load the new firmware** and run the calibration procedure above.
+6. **Load your variant's firmware** and run the calibration procedure above.
 7. **Mount the controller board on/near the car.** Range is irrelevant at inches;
    just keep the antenna clear of metal and the motor.
 
@@ -410,6 +517,8 @@ car on the ground.
 | Only full-on or full-off, no in-between | The controls may be switches, not pots — this approach can't add proportionality; swap the ESC instead. |
 | Erratic/jumpy values | Missing common ground between Nano and controller, or digipot powered above its voltage rating. |
 | Digipot runs hot / dies | Over-voltage — controller rail exceeds the digipot's max (see the BOM warning). |
+| (PWM) Neutral drifts as the controller's batteries drain | The A0 rail-sense wire isn't actually on the controller rail — the ratiometric compensation is running on a stale or default reading. |
+| (PWM) Throttle surges/steps instead of moving smoothly | Filter capacitor missing, disconnected, or far too small — raw PWM is reaching the controller chip. Use ≥1µF with the series R in place. |
 | Car keeps moving after app disconnects | Failsafe not wired to `setNeutral()` — verify the 500 ms timeout path. |
 
 ## Buying a matching controller
@@ -441,7 +550,8 @@ model's bind steps in its manual.
 - Hardware overview and doc map: [`hardware-wiring.md`](hardware-wiring.md)
 - The "normal" wired-ESC guide: [`esc-wiring.md`](esc-wiring.md)
 - Calibration worksheet: [`controller-takeover-calibration.md`](controller-takeover-calibration.md)
-- Ready-to-flash firmware: `arduino/ControllerTakeover/ControllerTakeover.ino`
+- Variant A firmware (digipots): `arduino/ControllerTakeover/ControllerTakeover.ino`
+- Variant B firmware (PWM): `arduino/ControllerTakeoverPwm/ControllerTakeoverPwm.ino`
 - Original servo/ESC firmware: `arduino/EscServoController/EscServoController.ino`
 - App-side serial protocol (unchanged): `app/.../MotorController.kt`
 - Action → throttle/steering mapping: `app/.../DriveCommand.kt`

@@ -2,7 +2,10 @@
 
 A fill-in checklist for the [controller-takeover](controller-takeover.md) build.
 Work top to bottom, write your measured values in the blanks, then copy the final
-numbers into `arduino/ControllerTakeover/ControllerTakeover.ino`.
+numbers into your variant's sketch: `ControllerTakeover.ino` (Variant A,
+digipots, values 0–255) or `ControllerTakeoverPwm.ino` (Variant B, PWM —
+**this build** — values 0–1023 rail fractions). The steps are identical either
+way; only the units differ.
 
 Do everything from "Bench test" onward with the **car's wheels off the ground.**
 
@@ -19,8 +22,9 @@ Fill these in before you buy/solder:
 | Trigger pot resistance (HIGH→LOW) | `~5.2 kΩ` | 5k nominal; via wiper-pair sum (4.4k + ~840Ω at full forward) |
 | Wheel pot resistance (HIGH→LOW) | `~5.2 kΩ` | 5k nominal; wiper-pair sum constant at every position |
 | Controller supply rail voltage | `______ V` | usually 3×AA = 4.5V |
-| Digipot part chosen | `____________` | e.g. MCP41010 (10k works — ratiometric) or MCP4151-502 (exact 5k, needs `setWiper()` tweak) |
-| Digipot max voltage rating | `______ V` | **must be ≥ the controller rail** |
+| Digipot part chosen (Variant A only) | `____________` | e.g. MCP41010 (10k works — ratiometric) or MCP4151-502 (exact 5k, needs `setWiper()` tweak) |
+| Digipot max voltage rating (Variant A only) | `______ V` | **must be ≥ the controller rail** |
+| Filter R / C per channel (Variant B only) | `______ / ______` | R 2.2–4.7kΩ (a sacrificed pot's element works), C 1–2.2µF |
 
 > If the rail voltage is above your digipot's max rating, either pick a
 > higher-voltage digipot or feed that controller from a regulated 4.5–5V source.
@@ -103,8 +107,9 @@ Then disarm and confirm the parked state:
 
 ## 5. Copy final values into the firmware
 
-Paste your measured numbers into the CALIBRATION block of
-`ControllerTakeover.ino`, then re-flash:
+Paste your measured numbers into the CALIBRATION block of your variant's
+sketch — `ControllerTakeover.ino` (0–255 wiper codes) or
+`ControllerTakeoverPwm.ino` (0–1023 rail fractions) — then re-flash:
 
 ```cpp
 const int THR_MIN     = ____;  // full reverse
