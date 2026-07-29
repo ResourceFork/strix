@@ -227,6 +227,15 @@ harness side on the digipot instead. The servo-style color convention
 > limits, not the digipot's 0/255 extremes. Resistance can't tell HIGH from
 > LOW — the powered DC-volts check settles that.
 >
+> The trigger (throttle) pot repeated the topology on the same ~5k track,
+> with two twists. Its sweep direction is opposite the wheel's (full forward
+> drives the wiper toward the *red* end, ~840Ω), and it uses a much narrower
+> window — black↔white rested at 2.77k and swept only 1.99k (full reverse) →
+> 4.4k (full forward), about 46% of the electrical track. The window is also
+> lopsided: forward gets roughly twice the electrical span of reverse, the
+> classic RC throttle layout. That's why `THR_NEUTRAL` lands nowhere near the
+> digipot's 128 midpoint and is calibrated first.
+>
 > **Bonus discovery: these pots unplug from the main board** — each pigtail
 > ends in a small connector. That improves the build twice over:
 >
