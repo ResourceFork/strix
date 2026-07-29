@@ -216,10 +216,28 @@ harness side on the digipot instead. The servo-style color convention
 > hold. **Black was the wiper** — it sat on the pot's center terminal, and its
 > resistance to the white wire swept ~26Ω → 4.6kΩ across the trigger's travel,
 > resting mid-track (~2.6k, the spring-return neutral). Red and white were the
-> two ends, and the track measured ~5k nominal. Also expect the rail-side end
-> to read strangely in Ω mode while the harness is connected — caps and the
-> radio chip hang off that node and the meter's test current pokes them. The
-> powered DC-volts check is what settles HIGH vs LOW.
+> two ends, and the track measured ~5k nominal. Resistance can't tell HIGH
+> from LOW — the powered DC-volts check settles that.
+>
+> **Bonus discovery: these pots unplug from the main board** — each pigtail
+> ends in a small connector. That improves the build twice over:
+>
+> 1. **Measure the pot isolated** (unplugged) so nothing else on the board can
+>    skew the Ω readings. Probing female connector sockets is fiddly — push a
+>    snug jumper pin into each socket and clip the probes to those. Healthy
+>    pot: wiper↔each-end sweeps, end↔end sits steady at the track value, and
+>    at any trigger position the two wiper readings sum to the track value.
+> 2. **Skip the wire-cutting entirely.** Cut the pigtail at the *pot body*,
+>    keep the connector, and solder the digipot to the connector side per the
+>    identified roles — the digipot becomes a plug-in replacement and the
+>    controller board is never touched.
+>
+> With the pot unplugged, identify the board-side pins directly: controller
+> on (car **off**, so garbage radio commands can't move it), meter on DC V,
+> black probe on battery negative. The socket pin at the rail is HIGH → PA0,
+> the 0V pin is LOW → PB0, and the leftover pin — floating, so it may read
+> drifting nonsense — is the wiper input → PW0. Record pin *positions*: the
+> connector enforces the mapping from here on.
 
 **Verify with a meter before cutting** — colors are a habit, not a spec.
 Controller on, pot still connected, black probe on battery negative, probe
