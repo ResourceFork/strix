@@ -4,7 +4,7 @@
 
   Drop-in alternative to EscServoController.ino for cars whose ESC is a
   sealed receiver+ESC combo that can't be wired to a signal pin (e.g. Hosim
-  X15W). Instead of emitting servo/ESC pulses, this variant drives two SPI
+  X15). Instead of emitting servo/ESC pulses, this variant drives two SPI
   digital potentiometers that replace the trigger and steering-wheel pots
   inside a spare 2.4GHz handheld controller. The controller then transmits
   over its normal, already-paired radio link to a sealed receiver+ESC.

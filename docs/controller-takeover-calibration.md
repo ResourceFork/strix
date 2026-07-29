@@ -14,7 +14,7 @@ Fill these in before you buy/solder:
 
 | Item | Value | Notes |
 |---|---|---|
-| Car model | `X15W` | (yours) |
+| Car model | `X15` | (yours) |
 | Controller part | `F12025` | Hosim replacement transmitter |
 | Trigger pot resistance (HIGH→LOW) | `______ kΩ` | measure end-to-end with a multimeter |
 | Wheel pot resistance (HIGH→LOW) | `______ kΩ` | |

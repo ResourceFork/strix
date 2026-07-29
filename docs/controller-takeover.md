@@ -134,6 +134,16 @@ know or match its precise voltage.
 > higher-voltage digipot or run that controller from a regulated 4.5–5V source.
 > Measure the controller's rail before buying (step 3 under "Before you build").
 
+> **Pot value nuance:** the controller chip reads the wiper as a voltage into
+> a high-impedance input, so what it sees is the *division ratio*, not the
+> absolute resistance. A 10k digipot on a ~5k pot's pads produces the same
+> wiper voltages and normally works fine — stay within roughly 2× of the
+> measured track value. (The Hosim trigger pot measured ~5k; see the field
+> note under [Wired pots](#wired-pots-red--black--white-harness).) For an
+> exact 5k match, the MCP4151-502 exists, but it speaks a different SPI
+> command format than the MCP41xxx `0x11` write in the sketch, so `setWiper()`
+> needs a small tweak if you choose it.
+
 ## Nano pin usage
 
 SPI on the Nano (Uno/Nano pinout):
@@ -193,14 +203,23 @@ automatically matches what the controller chip expects.
 Some controllers — Hosim's included — don't board-mount the pots: each pot
 hangs off a **3-wire harness**. That's the easy case: nothing to desolder from
 the main board. Cut (or unplug) the three wires at the pot and land the
-harness side on the digipot instead. The colors almost always follow the
-servo-style convention:
+harness side on the digipot instead. The servo-style color convention
+*suggests* this mapping:
 
 | Wire color | Pot terminal | Digipot pin |
 |---|---|---|
 | Red | HIGH — controller supply rail | **PA0** (pin 7) |
 | Black | LOW — ground | **PB0** (pin 5) |
 | White | WIPER — the signal the controller chip reads | **PW0** (pin 6) |
+
+> **Field note (this build's Hosim controller):** the convention did **not**
+> hold. **Black was the wiper** — it sat on the pot's center terminal, and its
+> resistance to the white wire swept ~26Ω → 4.6kΩ across the trigger's travel,
+> resting mid-track (~2.6k, the spring-return neutral). Red and white were the
+> two ends, and the track measured ~5k nominal. Also expect the rail-side end
+> to read strangely in Ω mode while the harness is connected — caps and the
+> radio chip hang off that node and the meter's test current pokes them. The
+> powered DC-volts check is what settles HIGH vs LOW.
 
 **Verify with a meter before cutting** — colors are a habit, not a spec.
 Controller on, pot still connected, black probe on battery negative, probe
@@ -365,13 +384,13 @@ the receiver label). The two official Hosim replacement transmitters:
 
 - **[Hosim F12025 transmitter](https://www.amazon.com/Hosim-Transmitter-Assembly-Parts-F12025/dp/B09ZHT5TLF)**
   — **the match for this build.** Listed for **M13, M23, X27, X25, X17, X16, X08,
-  X07, X15, X07W, and X15W**, and confirmed visually identical to the X15W's stock
-  controller. This is the one to buy for a Hosim X15W.
+  X07, X15, X07W, and X15W**, and confirmed visually identical to the X15's stock
+  controller. This is the one to buy for a Hosim X15.
 - **[Hosim 25-ZJ08 transmitter](https://www.amazon.com/Transmitter-Assembly-Accessory-25-ZJ08-Hosim/dp/B07BWCRTS2)**
   — the older **9125, 9155, 9156, Q903** family. Listed only for reference; **not**
-  for the X15W.
+  for the X15.
 
-> **Match the controller to your car's model.** The X15W uses the F12025 above.
+> **Match the controller to your car's model.** The X15 uses the F12025 above.
 > For a different Hosim, buy the transmitter whose listing names your model —
 > the wrong family won't bind to your receiver.
 
