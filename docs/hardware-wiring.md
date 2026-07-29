@@ -1,74 +1,151 @@
-# Hardware Wiring Guide
+# Strix Hardware Guide
 
-How to wire the RC car's electronics to the Arduino Nano — written so you can
-follow it even if you've never touched an RC car or a microcontroller before.
+> **Start here.** This page explains what you're building, helps you pick your
+> build path, and links to every other hardware document.
 
-The car's "brain" is an **Arduino Nano**. The phone runs the Strix app and talks
-to the Nano over a USB cable. The Nano then sends signals to the parts that
-actually move the car.
+[Glossary](glossary.md) · [Parts & shopping](parts-and-shopping.md) · [Serial protocol](serial-protocol.md)
 
-This page is the overview and table of contents: it introduces the parts, the
-one rule that keeps the Nano alive, and the decision that picks your drive
-path — then hands off to the focused guides.
+---
 
-## The guides
+## What you're building
 
-| Guide | What it covers | Read it when |
+An RC car that drives itself, with an Android phone as its brain and an
+**Arduino Nano** as its hands.
+
+```
+   Android phone  ──USB──▶  Arduino Nano  ──signals──▶  the car's motors
+   (camera, VLM,             (translates                (drive + steering)
+    the app)                  commands)
+```
+
+Three things to internalize before you touch a wire:
+
+1. **The phone does the thinking.** It runs the camera, the vision model, and
+   the app. It powers the Nano and talks to it over one USB cable.
+2. **The Nano only sends tiny signals.** It never carries motor current. The
+   car's own electronics do the heavy lifting.
+3. **Everything shares one ground.** That shared reference is what makes the
+   Nano's signals meaningful to the car. Most "nothing works" problems are a
+   missing ground.
+
+---
+
+## Step 1: pick your drive path
+
+This is the only decision that changes what you buy and build. **Look at your
+car's ESC** (the box the motor wires run into):
+
+| What you see | Your path | Why |
 | --- | --- | --- |
-| [ESC & servo wiring](esc-wiring.md) | The "normal" drive path: wiring a conventional ESC and steering servo straight to the Nano — pin map, connectors, assembly, first power-on test, troubleshooting | Your ESC has a servo-style signal wire |
-| [Controller takeover](controller-takeover.md) | The sealed-ESC workaround: the Nano impersonates the pots of a spare handheld controller (filtered PWM or digipot chips), and the controller's stock radio does the rest | Your ESC is a sealed receiver+ESC brick with no signal input |
-| [Calibration worksheet](controller-takeover-calibration.md) | Fill-in checklist for the takeover build: pot measurements, terminal identification, wiper calibration | You're doing the takeover build |
-| [Sensor wiring](sensor-wiring.md) | The forward-perception array: center VL53L4CD time-of-flight + corner HC-SR04 ultrasonics — placement, pin tables, verification | You're adding measured obstacle distances (works with either drive path) |
+| A 3-pin servo-style **signal plug** you can reach | **[Path A: direct-wired ESC](esc-wiring.md)** | The Nano can drive the ESC directly. Simplest build. |
+| A **sealed, resin-potted brick** — motor wires in, no signal input, antenna wire | **[Path B: controller takeover](controller-takeover.md)** | Nothing to plug into. The Nano impersonates a handheld controller's controls instead, and the car's stock radio does the rest. |
 
-## Which drive path do I need?
+Not sure? If the only way to command the car is its handheld remote, and the
+ESC has no connector besides power and motor leads, you're on Path B.
+Waterproof cars (Hosim, and most cars sold as "all-terrain") are Path B.
 
-Look at your ESC:
+> 💡 **Distance sensors are independent of this choice.** The
+> [sensor array](sensor-wiring.md) uses pins that are free in both paths, so
+> you can add it to either build, whenever you like.
 
-- **It has a 3-pin servo-style signal plug** (or a signal wire you can reach) →
-  the direct path: [`esc-wiring.md`](esc-wiring.md).
-- **It's a sealed, resin-potted receiver+ESC combo** — waterproof Hosim-style
-  cars (like this build's X15) pot both into one brick whose only input is its
-  own 2.4GHz radio → [`controller-takeover.md`](controller-takeover.md).
+---
 
-The [sensor wiring](sensor-wiring.md) is independent of that choice: its pins
-(D2–D5, A4/A5) are free in both firmware variants, so the same sensor wiring
-works for either build.
+## Step 2: read your path's documents
 
-## The parts (and their acronyms)
-
-| Part | What it is | Its job |
+| Document | What's in it | Read it when |
 | --- | --- | --- |
-| **Arduino Nano** | A small microcontroller board | Receives commands from the phone, sends signals to everything else |
-| **ESC** — *Electronic Speed Controller* | The RC car's motor controller (the acronym you were after) | Takes power from the battery and drives the main **drive motor** forward/reverse based on a signal wire |
-| **Steering servo** | A small geared motor that turns the front wheels | Points the wheels left/right |
-| **Drive motor** | The big motor that spins the wheels | Makes the car go; it's driven *by the ESC*, never wired to the Nano directly |
-| **RC battery** | Usually a 2S LiPo (7.4V) or NiMH pack | Powers the motor side (high current) |
+| **[Parts & shopping](parts-and-shopping.md)** | Every part, with Amazon links, prices, and what you can substitute or skip | Before you order anything |
+| **[Glossary](glossary.md)** | Every acronym and concept in one place — ESC, BEC, wiper, duty cycle, ToF… | Any time a term is unfamiliar |
+| **[Path A: ESC & servo wiring](esc-wiring.md)** | Direct-wired drive: pin map, connectors, assembly, first power-on | You're on Path A |
+| **[Path B: controller takeover](controller-takeover.md)** | Sealed-ESC workaround: how it works, the two variants, build steps | You're on Path B |
+| **[Path B: identify the pots](pot-identification.md)** | Multimeter bench procedure to label the controller's pot wires before you cut | You're on Path B, before wiring |
+| **[Path B: calibration worksheet](controller-takeover-calibration.md)** | Fill-in-the-blanks checklist for measurements and calibration values | You're on Path B, during the build |
+| **[Add-on: sensor wiring](sensor-wiring.md)** | Forward-perception array: time-of-flight + ultrasonics, placement and pins | You want measured obstacle distances |
+| **[Serial protocol](serial-protocol.md)** | The command language the phone and Nano share, and how to drive it by hand | Testing, debugging, or writing code |
 
-> **Key idea for newbies:** the Nano never touches motor-level power. It only
-> sends tiny *signal* pulses. The ESC is the muscle — it takes the fat battery
-> wires and does the heavy lifting. Mixing these two worlds up is the #1 way
-> people fry a board, so every guide above keeps them separate: two power
-> worlds (phone-powered logic, battery-powered motors) that meet only at one
-> **common ground**.
+### Suggested reading order
 
-## What's the same everywhere
+**Path A build:** [Parts](parts-and-shopping.md) → [ESC wiring](esc-wiring.md) → [Sensors](sensor-wiring.md) (optional) → [Protocol](serial-protocol.md) for testing
 
-Whichever path you take:
+**Path B build:** [Parts](parts-and-shopping.md) → [Takeover overview](controller-takeover.md) → [Identify the pots](pot-identification.md) → [Worksheet](controller-takeover-calibration.md) → [Sensors](sensor-wiring.md) (optional)
 
-- **The phone is the power and brains link.** A USB OTG cable powers the Nano
-  and carries the serial protocol (115200 baud). The app finds the port
-  automatically.
-- **The serial protocol never changes.** `A:1` arm, `T1:<v>` throttle,
-  `T2:<v>` steering, `?` ping, `D?` distances — both firmware variants speak
-  it byte-for-byte identically, so the app doesn't care which build you did.
-- **The failsafe never changes.** If commands stop for 500 ms, everything
-  parks at neutral. A crashed app or a yanked cable stops the car.
-- **Common ground is mandatory.** Every signal is measured relative to it;
-  most "nothing works" symptoms are a missing ground.
+**Just adding sensors to a working car:** [Sensors](sensor-wiring.md) → [Protocol](serial-protocol.md)
+
+---
+
+## The complete pin map
+
+Every Nano pin used by every build, in one table. Columns are alternatives —
+you use one drive-path column plus the sensor column.
+
+| Nano pin | Path A: direct ESC | Path B-A: digipots | Path B-B: PWM | Sensors (any build) |
+| --- | --- | --- | --- | --- |
+| **D2** | — | — | — | Front-left ultrasonic TRIG |
+| **D3** | — | — | — | Front-left ultrasonic ECHO |
+| **D4** | — | — | — | Front-right ultrasonic TRIG |
+| **D5** | — | — | — | Front-right ultrasonic ECHO |
+| **D7** | — | Throttle digipot CS | — | — |
+| **D8** | — | Steering digipot CS | — | — |
+| **D9** | ESC signal | — | Throttle PWM → RC filter | — |
+| **D10** | Steering servo signal | — | Steering PWM → RC filter | — |
+| **D11** | Spare (channel 3) | SPI MOSI | — | — |
+| **D13** | — | SPI SCK | — | — |
+| **A0** | — | — | Controller rail sense | — |
+| **A4** | — | — | — | ToF SDA (I²C) |
+| **A5** | — | — | — | ToF SCL (I²C) |
+| **3V3** | — | — | — | ToF power (**never 5V**) |
+| **5V** | — | — | — | Ultrasonic power |
+| **GND** | Common ground | Common ground | Common ground | Common ground |
+
+Firmware for each column: [`EscServoController.ino`](../arduino/EscServoController/EscServoController.ino) ·
+[`ControllerTakeover.ino`](../arduino/ControllerTakeover/ControllerTakeover.ino) ·
+[`ControllerTakeoverPwm.ino`](../arduino/ControllerTakeoverPwm/ControllerTakeoverPwm.ino)
+
+---
+
+## Rules that apply to every build
+
+These hold no matter which path you take. Everything else is detail.
+
+| Rule | Why |
+| --- | --- |
+| **One common ground.** Nano GND ties to the ESC/servo/controller ground. | Every signal is a *voltage relative to ground*. Without a shared reference, the receiving chip sees noise. |
+| **Two power worlds, meeting only at ground.** The phone powers the Nano; the car's battery powers the motors. | Bridging them is the #1 way people destroy a Nano. Never feed motor-side 5–6V into the Nano's 5V pin. |
+| **Wheels off the ground for every first test.** Prop the car on a box. | A miscalibrated throttle sends a 60 km/h car across the room. |
+| **Arm before you drive.** Nothing moves until the app sends `A:1`. | Prevents a stray startup command from launching the car. See [arming](serial-protocol.md#arming). |
+| **The 500 ms failsafe is your friend.** If commands stop, everything parks at neutral. | A crashed app or yanked cable stops the car instead of leaving it running. |
+
+> ⚠️ **Battery safety.** LiPo packs are not forgiving. Don't charge them
+> unattended, don't puncture them, don't leave them in a hot car, and stop
+> using any pack that's puffed or damaged.
+
+---
+
+## This build's configuration
+
+The docs are written to be general, but they're grounded in one real build. Where
+you see measured numbers, they came from this car:
+
+| | |
+| --- | --- |
+| **Car** | Hosim X15 — waterproof, sealed receiver+ESC brick, ~60 km/h |
+| **Drive path** | **Path B**, controller takeover (no signal wire exists to tap) |
+| **Variant** | **B — PWM wiper synthesis** (no digipot chips; see [why](controller-takeover.md#pick-a-variant-digipots-or-pwm)) |
+| **Sacrificial controller** | Hosim F12025 transmitter ([parts](parts-and-shopping.md#path-b-controller-takeover)) |
+| **Controller pots** | ~5.2 kΩ, 3-wire harness with connectors, **black wire = wiper** ([measurements](pot-identification.md#field-data-from-this-build)) |
+| **Sensors** | Center VL53L4CD time-of-flight + two corner HC-SR04 ultrasonics |
+
+If your car differs, the *procedures* still apply — substitute your own
+measurements for the numbers.
+
+---
 
 ## Reference
 
-- App-side serial API and protocol: `app/.../MotorController.kt`
-- Action → motor mapping (how "TURN_LEFT" becomes throttle+steering): `app/.../DriveCommand.kt`
-- Direct-path firmware: `arduino/EscServoController/EscServoController.ino`
-- Takeover firmware: `arduino/ControllerTakeover/ControllerTakeover.ino`
+- **App-side serial API:** [`MotorController.kt`](../app/src/main/java/com/resourcefork/rccontrol/MotorController.kt)
+- **Action → motor mapping** (how `TURN_LEFT` becomes throttle + steering): [`DriveCommand.kt`](../app/src/main/java/com/resourcefork/rccontrol/DriveCommand.kt)
+- **Vision setup:** [on-device VLM](on-device-vlm.md) · [self-hosted VLM server](self-hosted-vlm-server.md)
+
+---
+
+**Next:** [Parts & shopping](parts-and-shopping.md) — figure out what you need to buy.

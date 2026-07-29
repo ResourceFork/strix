@@ -1,32 +1,46 @@
-# Sensor Wiring: the Forward-Perception Array
+# Add-on: Sensor Wiring
 
-The Nano can report *measured* obstacle distances to the app — true
-time-of-flight and ultrasonic readings in absolute millimeters, complementing
-the camera's inferred (relative) depth. Three sensors form a **forward
-perception array**:
+> The forward-perception array — a center time-of-flight beam plus two corner
+> ultrasonics — giving the car *measured* obstacle distances in millimeters.
 
-- **Center: Modulino Distance (VL53L4CD time-of-flight).** A narrow (~18°),
-  millimeter-accurate laser beam straight ahead, 0–1200mm. This is the
-  precision "am I about to hit that?" sensor for the car's driving lane.
-- **Front-left + front-right corners: HC-SR04 ultrasonic.** Wide (~15–30°)
-  cones, ~20mm–2m. Mounted on the corners and angled slightly outward, they
-  cover the flanks the center beam misses — exactly where a clipped doorframe
-  or chair leg lives.
+[← Hardware guide](hardware-wiring.md) · [Glossary](glossary.md) · [Parts](parts-and-shopping.md#add-on-distance-sensors) · [Serial protocol](serial-protocol.md)
+
+---
+
+## At a glance
+
+| | |
+| --- | --- |
+| **What you'll do** | Mount and wire three distance sensors to the Nano's free pins |
+| **You'll need** | 2× HC-SR04, 1× VL53L4CD module, an I²C level shifter ([parts](parts-and-shopping.md#add-on-distance-sensors)) |
+| **Time** | An hour including mounting |
+| **Difficulty** | Easy wiring, fiddly mounting |
+| **Works with** | **Either** drive path — these pins are free in both firmware variants |
+| **Optional?** | Entirely. Absent sensors report `-1` forever and nothing else breaks. |
+
+---
+
+## Why three sensors, all facing forward
+
+The camera gives *inferred, relative* depth. These sensors give *measured,
+absolute* millimeters. Together they cover each other's weaknesses.
+
+| Sensor | Position | Beam | Range | Job |
+| --- | --- | --- | --- | --- |
+| **VL53L4CD** [time-of-flight](glossary.md#tof) | Center | Narrow, ~18° | 0–1200 mm | Millimeter-accurate "am I about to hit that?" for the driving lane |
+| **HC-SR04** [ultrasonic](glossary.md#ultrasonic) ×2 | Front-left and front-right corners | Wide cone, ~15–30° | ~20 mm–2 m | Cover the flanks the center beam misses — where a clipped doorframe or chair leg lives |
 
 Everything looks forward because the mission is deciding **how and when to
-advance**. There is deliberately no rear sensor: reversing is only used to
-back out along ground the car has already covered.
+advance.** There is deliberately **no rear sensor**: reversing is only ever used
+to back out along ground the car has already covered.
 
-The three readings line up with the camera's depth bands — left, center,
-right — so the measured and inferred views of "what's ahead" speak the same
-vocabulary.
+The three readings line up with the camera's [depth bands](glossary.md#depth-band)
+— left, center, right — so the measured and inferred views of "what's ahead"
+speak the same vocabulary.
 
-This wiring is the same for **both** drive builds — direct-wired ESC
-([`esc-wiring.md`](esc-wiring.md)) and controller takeover
-([`controller-takeover.md`](controller-takeover.md)) — because the sensor pins
-(D2–D5, A4/A5) are free in both firmware variants.
+---
 
-## Placement (top-down view)
+## Placement
 
 ```
                  obstacle coverage
@@ -49,19 +63,15 @@ This wiring is the same for **both** drive builds — direct-wired ESC
                 (no rear sensors)
 ```
 
-Mounting guidance:
+| Guidance | Detail |
+| --- | --- |
+| **Corner angle** | Angle each SR04 ~10–20° outward. Straight ahead wastes them (the ToF covers that); too far out and they stare at walls beside the car. Aim for the cones to *just* overlap the ToF beam a car-length ahead. |
+| **Height** | All three at obstacle height — roughly bumper level, high enough that flat ground doesn't reflect into the cone. If the SR04s see the floor, tilt them up a degree or two. |
+| **ToF lens** | Keep it clean and unobstructed. No body-shell plastic in front of it — the laser will happily measure the inside of the shell. |
 
-- **Corner SR04s:** angle each ~10–20° outward from straight ahead. Straight
-  ahead wastes them (the ToF already covers that); too far out and they stare
-  at walls beside the car. Aim for the cones to *just* overlap the ToF beam a
-  car-length ahead.
-- **Height:** mount all three at obstacle height — roughly bumper level, high
-  enough that flat ground doesn't reflect into the cone. If the SR04s see the
-  floor, tilt them up a degree or two.
-- **Keep the ToF lens clean and unobstructed** — no body-shell plastic in
-  front of it; the laser will happily measure the inside of the shell.
+---
 
-## Wiring diagram
+## Wiring
 
 ```mermaid
 flowchart LR
@@ -91,7 +101,7 @@ flowchart LR
         srg["GND"]
     end
 
-    subgraph tof["Modulino Distance (VL53L4CD ToF)"]
+    subgraph tof["VL53L4CD ToF module"]
         tsda["SDA"]
         tscl["SCL"]
         tv["3V3"]
@@ -118,15 +128,15 @@ flowchart LR
     tg --> gnd
 ```
 
-## Pin-by-pin tables
+### Pin-by-pin tables
 
-These pins are free in **both** firmware variants (servo/ESC and
-controller-takeover), so the same wiring works for either build.
+These pins are free in **both** firmware variants, so the same wiring serves
+either build.
 
-**HC-SR04 corners** — 5V devices, direct to the Nano, no level shifting. Each
-has 4 pins in a row, labeled on the board:
+**HC-SR04 corners** — 5V devices, direct to the Nano, no level shifting needed.
+Each has four labeled pins in a row:
 
-| Sensor | Sensor pin | Nano pin | Wire it means |
+| Sensor | Sensor pin | Nano pin | What it does |
 | --- | --- | --- | --- |
 | Front-LEFT | VCC | **5V** | power |
 | Front-LEFT | Trig | **D2** | "fire a ping" input |
@@ -137,78 +147,98 @@ has 4 pins in a row, labeled on the board:
 | Front-RIGHT | Echo | **D5** | echo-time output |
 | Front-RIGHT | GND | **GND** | ground |
 
-Left/right is from the **car's own perspective** (driver's seat), not yours
-looking at it head-on. If the app's L/R readings ever look swapped, you wired
-the sensors to each other's pins — swap D2/D3 with D4/D5.
+> 💡 **Left and right are from the car's perspective** (driver's seat), not yours
+> looking at it head-on. If the app's L/R readings look swapped, you wired the
+> sensors to each other's pins — swap D2/D3 with D4/D5.
 
-**Modulino Distance (ToF)** — 3.3V I2C. The Modulino connector is a 4-pin
-JST-SH Qwiic socket (pin labels are printed on the board: GND, 3V3, SDA, SCL);
-cut a Qwiic cable and crimp/solder to jumper wires, or use the module's
-breakout pads:
+**VL53L4CD module** — 3.3V [I²C](glossary.md#i²c). On an Arduino Modulino the
+connector is a 4-pin JST-SH Qwiic socket with labels printed on the board (GND,
+3V3, SDA, SCL); cut a Qwiic cable and crimp to jumper wires, or use the breakout
+pads. Generic breakouts have plain header pins.
 
-| Modulino pin | Connects to | Nano pin |
+| Module pin | Connects to | Nano pin |
 | --- | --- | --- |
-| SDA | level shifter LV side ↔ HV side | **A4** |
+| SDA | [level shifter](glossary.md#level-shifter) LV side ↔ HV side | **A4** |
 | SCL | level shifter LV side ↔ HV side | **A5** |
 | 3V3 | direct | **3V3** (never 5V) |
 | GND | direct | **GND** |
 
-> ⚠️ **The Modulino (Qwiic) ecosystem is 3.3V-only and not 5V tolerant** —
-> Arduino's own documentation is explicit about this. Two rules:
+> ⚠️ **The Qwiic/Modulino ecosystem is 3.3V-only and not 5V tolerant** —
+> Arduino's own documentation is explicit. Two rules:
 >
 > 1. Power it from the Nano's **3V3 pin**, never the 5V rail.
-> 2. The classic Nano's I2C lines are 5V logic, so put a **bidirectional I2C
->    level shifter** (a ~$2 four-channel BSS138 board: HV side → 5V + A4/A5,
->    LV side → 3V3 + module SDA/SCL, grounds common) between the Nano and the
->    module. A direct connection often works in practice — I2C is open-drain
->    and the module's pull-ups go to 3.3V — but it runs the sensor at the
->    edge of its ratings. The shifter is cheap insurance.
+> 2. The classic Nano's I²C lines are 5V logic, so put a **bidirectional I²C
+>    level shifter** between them (a ~$2 BSS138 board: HV side → 5V + A4/A5, LV
+>    side → 3V3 + module SDA/SCL, grounds common). A direct connection often
+>    works in practice — I²C is [open-drain](glossary.md#open-drain) and the
+>    module's pull-ups go to 3.3V — but it runs the sensor at the edge of its
+>    ratings. The shifter is cheap insurance.
+
+---
 
 ## Assembly order
 
-1. **Grounds first.** All three sensors' GND to the Nano's GND (a ground rail
-   on a mini breadboard keeps this tidy). As everywhere in these docs: shared
-   ground is what makes every signal meaningful.
-2. **Wire the corner SR04s** per the table (VCC→5V, Trig/Echo→D2–D5). Mount
-   them on the front corners, angled ~15° outward, at bumper height.
-3. **Wire the level shifter**: HV→5V, LV→3V3, GND→GND, HV1/HV2→A4/A5,
+1. **Grounds first.** All three sensors' GND to the Nano's GND. A ground rail on
+   a mini breadboard keeps this tidy. As everywhere in these docs,
+   [shared ground](glossary.md#common-ground) is what makes every signal
+   meaningful.
+2. **Wire the corner SR04s** per the table (VCC→5V, Trig/Echo→D2–D5). Mount them
+   on the front corners, angled ~15° outward, at bumper height.
+3. **Wire the level shifter:** HV→5V, LV→3V3, GND→GND, HV1/HV2→A4/A5,
    LV1/LV2→module SDA/SCL.
-4. **Power the Modulino from 3V3** and mount it front-center at bumper height.
-5. **Flash the firmware** (either variant). Building now needs the
-   **VL53L4CD** library (Pololu): Arduino IDE → Library Manager → "VL53L4CD",
-   or `arduino-cli lib install VL53L4CD`.
-6. **Verify over serial** (115200 baud) before trusting the app: send `D?` and
-   you should get `D:<center>,<frontLeft>,<frontRight>` in mm, e.g.
-   `D:431,822,760`. A `-1` means that sensor has no reading — normal for an
-   unwired sensor, out-of-range, or a missed echo. Wave a hand in front of
-   each sensor and watch its number move.
+4. **Power the module from 3V3** and mount it front-center at bumper height.
+5. **Flash the firmware** (either variant). This needs the **VL53L4CD** library:
+   Arduino IDE → Library Manager → "VL53L4CD", or
+   `arduino-cli lib install VL53L4CD`.
+6. **Verify over serial** before trusting the app — see below.
+
+### Verify with the serial monitor
+
+At 115200 baud, send `D?`:
+
+```
+D?                    →  D:431,822,760
+                          center, front-left, front-right — all in mm
+```
+
+A `-1` means that sensor has no reading: absent, out of range, or a missed echo.
+Wave a hand in front of each sensor in turn and watch its number move — that's
+also how you confirm you didn't swap left and right.
+
+---
 
 ## How it behaves
 
-- The firmware samples sensors **round-robin in the background** (one per
-  50ms tick), so drive-command latency is unaffected — and the two
-  ultrasonics never fire simultaneously, which prevents them hearing each
-  other's echoes (cross-talk) despite overlapping cones.
-- All sensors are optional: absent ones report `-1` forever and nothing else
-  breaks. A missing ToF module is detected at boot and skipped.
-- The app polls at ~5Hz while connected, median-filters single-sample
-  ultrasonic ghosts/dropouts, and shows "Range · L … · C … · R …" under the
-  camera preview — same left-to-right order as the depth-band readout above
-  it.
+| Behavior | Why it's designed that way |
+| --- | --- |
+| Firmware samples sensors **round-robin**, one per 50 ms tick | Keeps drive-command latency unaffected, and means the two ultrasonics never fire simultaneously — which prevents [cross-talk](glossary.md#cross-talk) despite their overlapping cones |
+| All sensors are **optional** | Absent ones report `-1` forever; a missing ToF module is detected at boot and skipped. Nothing else breaks. |
+| App polls at **~5 Hz** with a [median filter](glossary.md#median-filter) | Rejects single-sample ultrasonic ghosts and dropouts |
+| App shows "Range · L … · C … · R …" under the camera preview | Same left-to-right order as the depth-band readout above it, so the two views are directly comparable |
 
-## Sensor troubleshooting
+---
+
+## Troubleshooting
 
 | Symptom | Likely cause / fix |
 | --- | --- |
-| A channel always reads `-1` | Sensor unwired/unpowered, Trig/Echo swapped, or (ToF) I2C wiring — check SDA→A4, SCL→A5. |
+| A channel always reads `-1` | Sensor unwired or unpowered, Trig/Echo swapped, or (ToF) I²C wiring — check SDA→A4, SCL→A5. |
 | L and R appear swapped in the app | Left/right is the car's perspective — swap the D2/D3 and D4/D5 pairs. |
-| SR04 reads ~50–150mm constantly in open space | It's seeing the floor or the car's own body — raise it or tilt up slightly. |
-| SR04 readings jumpy | Soft/angled surfaces scatter ultrasound; the app's median filter eats single spikes, but persistent jitter means re-aim the sensor. |
-| ToF reads a fixed short value | Something is in front of the lens (body shell, tape) — clear line of sight required. |
-| ToF absent after boot but wired | It's only probed at power-up — power-cycle the Nano after fixing wiring. |
+| SR04 reads ~50–150 mm constantly in open space | It's seeing the floor or the car's own body — raise it or tilt it up slightly. |
+| SR04 readings jumpy | Soft or angled surfaces scatter ultrasound. The median filter eats single spikes; persistent jitter means re-aim the sensor. |
+| ToF reads a fixed short value | Something is in front of the lens (body shell, tape). It needs clear line of sight. |
+| ToF absent after boot but correctly wired | It's only probed at power-up — power-cycle the Nano after fixing wiring. |
+| `D?` returns nothing at all | Not a sensor problem: check the serial link itself with `?` ([protocol](serial-protocol.md#driving-it-by-hand)). |
+
+---
 
 ## Reference
 
-- Hardware overview and doc map: [`hardware-wiring.md`](hardware-wiring.md)
-- Firmware (either variant reads the sensors): `arduino/EscServoController/EscServoController.ino`, `arduino/ControllerTakeover/ControllerTakeover.ino`
-- App-side polling and display: `app/.../MotorController.kt`, `app/.../DistanceReport.kt`
+- [Serial protocol](serial-protocol.md) — the `D?` command and reply format
+- [Parts & shopping](parts-and-shopping.md#add-on-distance-sensors)
+- Firmware (either variant reads the sensors): [`EscServoController.ino`](../arduino/EscServoController/EscServoController.ino) · [`ControllerTakeover.ino`](../arduino/ControllerTakeover/ControllerTakeover.ino) · [`ControllerTakeoverPwm.ino`](../arduino/ControllerTakeoverPwm/ControllerTakeoverPwm.ino)
+- App side: [`DistanceReport.kt`](../app/src/main/java/com/resourcefork/rccontrol/DistanceReport.kt) · [`MotorController.kt`](../app/src/main/java/com/resourcefork/rccontrol/MotorController.kt)
+
+---
+
+**Back to:** [Hardware guide](hardware-wiring.md) · [Path A](esc-wiring.md) · [Path B](controller-takeover.md)

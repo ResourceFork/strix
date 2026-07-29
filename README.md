@@ -4,10 +4,28 @@ Strix Cunicularia (burrowing owl), an LLM powered RC car controller
 
 ## Hardware
 
-- [Hardware wiring guide](docs/hardware-wiring.md) — overview, parts glossary, and map of the wiring guides (start here)
-- [ESC & servo wiring](docs/esc-wiring.md) — the direct path: wire a conventional ESC and steering servo to the Arduino Nano (beginner friendly)
-- [Controller takeover](docs/controller-takeover.md) — workaround for sealed receiver+ESC combos (e.g. Hosim X15): automate a second controller's pots instead of wiring the ESC
-- [Sensor wiring](docs/sensor-wiring.md) — the forward-perception array: center time-of-flight + corner ultrasonics, for either build
+**[→ Start with the hardware guide](docs/hardware-wiring.md)** — it explains what
+you're building, helps you pick a build path, and links to everything below.
+
+*Shared references*
+
+- [Glossary](docs/glossary.md) — every acronym and concept in plain language
+- [Parts & shopping](docs/parts-and-shopping.md) — what to buy, what to salvage, what to skip
+- [Serial protocol](docs/serial-protocol.md) — the phone ↔ Nano command language
+
+*Drive path A — conventional ESC with a signal wire*
+
+- [ESC & servo wiring](docs/esc-wiring.md) — wire the ESC and steering servo straight to the Nano
+
+*Drive path B — sealed receiver+ESC combo (e.g. Hosim X15)*
+
+- [Controller takeover](docs/controller-takeover.md) — automate a spare controller's pots instead of wiring the ESC
+- [Identify the pots](docs/pot-identification.md) — multimeter bench procedure
+- [Calibration worksheet](docs/controller-takeover-calibration.md) — fill-in checklist
+
+*Optional add-on, either path*
+
+- [Sensor wiring](docs/sensor-wiring.md) — forward-perception array: center time-of-flight + corner ultrasonics
 
 ## VLM setup guides
 

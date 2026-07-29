@@ -11,8 +11,9 @@
 
   The serial protocol is IDENTICAL to the original sketch, so the phone app
   and MotorController.kt need no changes. See docs/controller-takeover.md for
-  the full rationale and wiring, and docs/controller-takeover-calibration.md
-  for the fill-in calibration worksheet.
+  the full rationale and wiring, docs/pot-identification.md for labeling the
+  controller's pot wires, and docs/controller-takeover-calibration.md for the
+  fill-in calibration worksheet.
 
   Wire protocol (newline-terminated ASCII lines):
     A:1\n            -- arm (required before T commands take effect)

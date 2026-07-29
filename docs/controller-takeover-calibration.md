@@ -1,77 +1,96 @@
-# Controller Takeover — Calibration Worksheet
+# Path B: Calibration Worksheet
 
-A fill-in checklist for the [controller-takeover](controller-takeover.md) build.
-Work top to bottom, write your measured values in the blanks, then copy the final
-numbers into your variant's sketch: `ControllerTakeover.ino` (Variant A,
-digipots, values 0–255) or `ControllerTakeoverPwm.ino` (Variant B, PWM —
-**this build** — values 0–1023 rail fractions). The steps are identical either
-way; only the units differ.
+> A fill-in checklist for the [controller takeover](controller-takeover.md)
+> build. Work top to bottom, write your measured values in the blanks, then copy
+> the final numbers into your firmware.
 
-Do everything from "Bench test" onward with the **car's wheels off the ground.**
+[← Path B: controller takeover](controller-takeover.md) · [Identify the pots](pot-identification.md) · [Serial protocol](serial-protocol.md) · [Glossary](glossary.md)
+
+---
+
+## Before you start
+
+| | |
+| --- | --- |
+| **Your variant** | ☐ A — digipots (`ControllerTakeover.ino`, values **0–255**) ☐ B — PWM (`ControllerTakeoverPwm.ino`, values **0–1023**) |
+| **Procedure for sections 1–2** | [Identify the pots](pot-identification.md) — the multimeter how-to |
+| **Command reference** | [Driving it by hand](serial-protocol.md#driving-it-by-hand) |
+
+> ⚠️ Everything from [section 4](#4-bench-test--measure-the-calibration-values)
+> onward happens with the **car's wheels off the ground.**
+
+The steps are identical for both variants — only the units differ.
 
 ---
 
 ## 1. Parts and measurements
 
-Fill these in before you buy/solder:
+Fill these in before you buy or solder. → [How to measure](pot-identification.md#using-your-multimeter)
 
 | Item | Value | Notes |
 | --- | --- | --- |
-| Car model | `X15` | (yours) |
-| Controller part | `F12025` | Hosim replacement transmitter |
-| Trigger pot resistance (HIGH→LOW) | `~5.2 kΩ` | 5k nominal; via wiper-pair sum (4.4k + ~840Ω at full forward) |
-| Wheel pot resistance (HIGH→LOW) | `~5.2 kΩ` | 5k nominal; wiper-pair sum constant at every position |
-| Controller supply rail voltage | `______ V` | usually 3×AA = 4.5V |
-| Digipot part chosen (Variant A only) | `____________` | e.g. MCP41010 (10k works — ratiometric) or MCP4151-502 (exact 5k, needs `setWiper()` tweak) |
-| Digipot max voltage rating (Variant A only) | `______ V` | **must be ≥ the controller rail** |
-| Filter R / C per channel (Variant B only) | `______ / ______` | R 2.2–4.7kΩ (a sacrificed pot's element works), C 1–2.2µF |
+| Car model | `X15` | (this build) |
+| Controller part | `F12025` | [Hosim replacement transmitter](parts-and-shopping.md#the-controller-required-for-path-b) |
+| Trigger pot track (HIGH→LOW) | `~5.2 kΩ` | 5k nominal — via wiper-pair sum |
+| Wheel pot track (HIGH→LOW) | `~5.2 kΩ` | 5k nominal — sum constant at every position |
+| **Controller supply rail voltage** | `______ V` | Usually 3×AA = 4.5V. [Powered test](pot-identification.md#step-3-find-high-and-low-powered-test) |
+| **(A)** Digipot part chosen | `____________` | MCP41010 (10k works — [ratiometric](glossary.md#ratiometric)) |
+| **(A)** Digipot max voltage rating | `______ V` | **Must be ≥ the controller rail** |
+| **(B)** Filter R per channel | `______ Ω` | 2.2–4.7 kΩ; a sacrificed pot's element works |
+| **(B)** Filter C per channel | `______ µF` | 1–2.2 µF |
 
-> If the rail voltage is above your digipot's max rating, either pick a
-> higher-voltage digipot or feed that controller from a regulated 4.5–5V source.
+> ⚠️ **(A)** If the rail voltage exceeds your digipot's rating, either pick a
+> higher-voltage part or feed that controller from a regulated 4.5–5V source.
 
 ---
 
 ## 2. Identify each pot's terminals
 
-For each pot, use the multimeter to find which physical pad is HIGH (sits at the
-rail voltage), WIPER (voltage sweeps as you move the control), and LOW (0V).
-Write the pad label/position so you solder the digipot the right way round.
+→ **Full procedure: [Identify the pots](pot-identification.md)**
 
-| Pot | HIGH pad | WIPER pad | LOW pad |
+Record which wire or pad is which. Getting the **wiper** right is the one that
+can't be fixed in software.
+
+| Pot | HIGH | WIPER | LOW |
 | --- | --- | --- | --- |
-| Trigger (throttle) | `______` (red or white) | `black` (center wire) | `______` (red or white) |
-| Wheel (steering) | `______` (red or white) | `black` (center wire) | `______` (red or white) |
+| Trigger (throttle) | `______` | `______` | `______` |
+| Wheel (steering) | `______` | `______` | `______` |
 
-Digipot mapping (same for both): `HIGH→PA0`, `WIPER→PW0`, `LOW→PB0`.
+Then map to your variant:
 
-**Measured so far (this build)** — pots isolated (unplugged from the board),
-black probe on the black center wire:
+| Role | Variant B (PWM) | Variant A (digipot) |
+| --- | --- | --- |
+| WIPER | D9 (throttle) / D10 (steering) via [RC filter](glossary.md#rc-low-pass-filter) | **PW0** |
+| HIGH | **A0** (rail sense, one pot's is enough) | **PA0** |
+| LOW | **GND** | **PB0** |
 
-| Pot | black↔white | black↔red | Rest |
+<details>
+<summary><strong>This build's measured values</strong> (worked example)</summary>
+
+Black wire was the **wiper** on both pots — the color convention did not hold.
+Track ≈ 5.2 kΩ. Full data and interpretation:
+[field data](pot-identification.md#field-data-from-this-build).
+
+| Pot | Wiper ↔ white | Wiper ↔ red | At rest |
 | --- | --- | --- | --- |
-| Wheel | 52Ω (full right) → 4.67k (full left) | 5.2k (right) → ~570Ω (left) | ~2.7k / ~2.55k |
-| Trigger | 1.99k (full reverse) → 4.4k (full forward) | 3.7k (reverse) → ~840Ω (forward) | 2.77k / 2.55k |
+| Wheel | 52 Ω (R) → 4.67 kΩ (L) | 5.2 kΩ (R) → ~570 Ω (L) | ~2.7 kΩ |
+| Trigger | 1.99 kΩ (rev) → 4.4 kΩ (fwd) | 3.7 kΩ (rev) → ~840 Ω (fwd) | 2.77 kΩ |
 
-- Both pots: wiper-pair sum ≈ 5.2k at every position → healthy, track ~5.2k.
-- Sweep senses are **opposite**: wheel-right moves toward the white end,
-  trigger-forward moves toward the red end. Wire by measurement, not assumption.
-- Trigger uses only ~46% of the track, forward span ≈ 2× reverse span — expect
-  `THR_NEUTRAL` well away from 128.
-- **Still pending:** which of red/white is HIGH vs LOW per pot — the powered
-  board-side socket test (controller on, **car off**, DC volts, black probe on
-  battery negative: rail pin = HIGH→PA0, 0V pin = LOW→PB0, floating pin =
-  WIPER→PW0). Fill the table above from that test, then record the rail
-  voltage in section 1.
+Key consequence: the trigger uses only ~46% of its track, forward-biased — so
+`THR_NEUTRAL` lands nowhere near the midpoint of the output range.
+</details>
 
 ---
 
 ## 3. Pre-flight checklist
 
-- [ ] Controller drives the car **manually** (before any modification)
-- [ ] Both pots replaced with digipots (PA0/PW0/PB0 wired per section 2)
-- [ ] Digipot VDD/VSS powered from the controller's rail + ground, within rating
-- [ ] SPI wired: `SCK→D13`, `MOSI→D11`, throttle `CS→D7`, steering `CS→D8`
-- [ ] **Common ground** between Nano GND and controller GND
+- [ ] Controller drives the car **manually**, before any modification
+- [ ] Both pots removed and replaced per your variant
+- [ ] **(A)** Digipot VDD/VSS powered from the controller's rail + ground, within rating
+- [ ] **(A)** SPI wired: `SCK→D13`, `MOSI→D11`, throttle `CS→D7`, steering `CS→D8`
+- [ ] **(B)** RC filters built: `D9→R→wiper`, `D10→R→wiper`, `C` from each wiper node to ground
+- [ ] **(B)** Rail sense wired: controller rail → `A0`
+- [ ] **[Common ground](glossary.md#common-ground)** between Nano GND and controller GND
 - [ ] Firmware flashed with placeholder constants
 - [ ] Car wheels **off the ground**
 - [ ] Car powered on and paired to the modified controller
@@ -80,12 +99,13 @@ black probe on the black center wire:
 
 ## 4. Bench test — measure the calibration values
 
-Send each command (from the app or a 115200-baud serial monitor) and tune the
-constant until the behavior matches, then record the wiper value.
+Send each command from the app or a 115200-baud serial monitor, tune the constant
+until the behavior matches, then record the value.
 
-**Throttle (channel 1)** — do NEUTRAL first, it's the most important:
+**Throttle (channel 1)** — do NEUTRAL first, it's the only one whose error is
+dangerous rather than annoying:
 
-- [ ] `A:1` then `T1:0` → car fully stopped, no creep → `THR_NEUTRAL = ______`
+- [ ] `A:1` then `T1:0` → car **fully stopped**, no creep → `THR_NEUTRAL = ______`
 - [ ] `T1:100` → desired top forward speed → `THR_MAX = ______`
 - [ ] `T1:-100` → desired top reverse speed → `THR_MIN = ______`
 
@@ -95,21 +115,21 @@ constant until the behavior matches, then record the wiper value.
 - [ ] `T2:100` → full right lock → `STR_RIGHT = ______`
 - [ ] `T2:-100` → full left lock → `STR_LEFT = ______`
 
-Then disarm and confirm the parked state:
+**Parked state:**
 
 - [ ] `A:0` → trigger releases to neutral and wheels re-center
 
-> Tips: you don't have to use the pot's full travel — clamp `THR_MAX`/`THR_MIN`
-> lower for a gentler car. If a direction is reversed, swap the MIN/MAX (or
+> 💡 **Two tips that save a lot of grief.** You don't have to use the control's
+> full travel — clamping `THR_MAX`/`THR_MIN` lower is how you make a 60 km/h car
+> usable indoors. And if a direction comes out reversed, **swap** the MIN/MAX (or
 > LEFT/RIGHT) values rather than rewiring.
 
 ---
 
 ## 5. Copy final values into the firmware
 
-Paste your measured numbers into the CALIBRATION block of your variant's
-sketch — `ControllerTakeover.ino` (0–255 wiper codes) or
-`ControllerTakeoverPwm.ino` (0–1023 rail fractions) — then re-flash:
+Paste your numbers into the CALIBRATION block of your variant's sketch, then
+re-flash:
 
 ```cpp
 const int THR_MIN     = ____;  // full reverse
@@ -125,13 +145,20 @@ const int STR_RIGHT   = ____;  // full right lock
 
 ---
 
-## 6. Final drive test (wheels still off the ground)
+## 6. Final drive test
+
+Wheels still off the ground.
 
 - [ ] `A:1` → arm
 - [ ] `T2:-100` / `T2:100` / `T2:0` → steering sweeps left, right, center
 - [ ] `T1:30` → wheels spin forward
 - [ ] `T1:-30` → wheels spin reverse (correct direction)
-- [ ] Disconnect the app briefly → car stops within ~0.5s (failsafe)
+- [ ] Disconnect the app briefly → car stops within ~0.5s ([failsafe](serial-protocol.md#the-500-ms-failsafe))
+- [ ] **(B)** Cut power to the Nano mid-drive → note what the controller transmits ([why](controller-takeover.md#failure-mode-to-bench-test))
 - [ ] `A:0` → everything parks at neutral
 
-Once all boxes are checked, put the car on the ground and start slow.
+Once every box is checked, put the car on the ground and start slow.
+
+---
+
+**Back to:** [Path B: controller takeover](controller-takeover.md) · **Optional next:** [add distance sensors](sensor-wiring.md)

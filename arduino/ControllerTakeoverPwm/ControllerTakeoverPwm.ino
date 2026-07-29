@@ -12,7 +12,8 @@
 
   The serial protocol is IDENTICAL to the other sketches, so the phone app
   and MotorController.kt need no changes. See docs/controller-takeover.md
-  (PWM variant section) for rationale and wiring, and
+  (PWM variant section) for rationale and wiring,
+  docs/pot-identification.md for labeling the controller's pot wires, and
   docs/controller-takeover-calibration.md for the fill-in worksheet.
 
   Wire protocol (newline-terminated ASCII lines):
