@@ -512,7 +512,11 @@ def build(parts_dir: str, out_path: str) -> int:
     nano = Part(parts_dir, "core/Arduino Nano3(fix).fzp")
     res = Part(parts_dir, "core/resistor.fzp")
     cap = Part(parts_dir, "core/capacitor_ceramic_100mil.fzp")
-    sr04 = Part(parts_dir, "core/hc-sr04_bf8299a_002.fzp")
+    # Use the part that ships with the Fritzing application. A fritzing-parts
+    # git clone can be ahead of the installed release and carry a replacement
+    # (hc-sr04_bf8299a_002) whose moduleId the app cannot resolve, which makes
+    # the sketch open with "Unable to find 1 part(s)".
+    sr04 = Part(parts_dir, "core/HC-SR04 Ultrasonic Distance Sensor.fzp")
     shift = Part(parts_dir, "core/I2C level shifter bidirectional.fzp")
     # No VL53L4CD part exists in the library, so a 4-pin header stands in for
     # the module's Qwiic breakout; the note names it explicitly.
@@ -654,32 +658,38 @@ def build(parts_dir: str, out_path: str) -> int:
     # D2/D3 (front-left) sit at columns 12/11 and D4/D5 (front-right) at 10/9,
     # so the modules are offset in that same order - left one to the right of
     # the pair, right one to the left - and their wires never cross each other.
-    SR_LIFT = 168.0
-    sr_left = sk.add_part(sr04, 0, 0, "SR04_frontLeft")
-    place_by_connector(sr_left, "connector1", dig["D2"], "J")
-    sr_left["x"] += 150.0
-    sr_left["y"] -= SR_LIFT
-    wire_conn_to_hole(sr_left, "connector1", dig["D2"], "J", ORANGE, "SR04L_TRIG_D2")
-    wire_conn_to_hole(sr_left, "connector2", dig["D3"], "J", ORANGE, "SR04L_ECHO_D3")
-    wire_conn_to_hole(sr_left, "connector0", 22, TOP_POS, RED, "SR04L_VCC")
-    wire_conn_to_hole(sr_left, "connector3", 24, TOP_GND, BLACK, "SR04L_GND")
-
+    # Both modules are ~1.8in wide but their four pins span only 4 columns, so
+    # they sit side by side straddling that pin group. Front-right takes the
+    # left slot (its pins D4/D5 are the lower columns) so no wire crosses the
+    # other module. Offsets keep every run under about an inch.
+    SR_LIFT = 120.0
     sr_right = sk.add_part(sr04, 0, 0, "SR04_frontRight")
     place_by_connector(sr_right, "connector1", dig["D4"], "J")
-    sr_right["x"] -= 175.0
+    sr_right["x"] -= 82.0
     sr_right["y"] -= SR_LIFT
     wire_conn_to_hole(sr_right, "connector1", dig["D4"], "J", ORANGE, "SR04R_TRIG_D4")
     wire_conn_to_hole(sr_right, "connector2", dig["D5"], "J", ORANGE, "SR04R_ECHO_D5")
-    wire_conn_to_hole(sr_right, "connector0", 4, TOP_POS, RED, "SR04R_VCC")
-    wire_conn_to_hole(sr_right, "connector3", 3, TOP_GND, BLACK, "SR04R_GND")
+    wire_conn_to_hole(sr_right, "connector0", 3, TOP_POS, RED, "SR04R_VCC")
+    wire_conn_to_hole(sr_right, "connector3", 5, TOP_GND, BLACK, "SR04R_GND")
+
+    sr_left = sk.add_part(sr04, 0, 0, "SR04_frontLeft")
+    place_by_connector(sr_left, "connector1", dig["D2"], "J")
+    sr_left["x"] += 61.0
+    sr_left["y"] -= SR_LIFT
+    wire_conn_to_hole(sr_left, "connector1", dig["D2"], "J", ORANGE, "SR04L_TRIG_D2")
+    wire_conn_to_hole(sr_left, "connector2", dig["D3"], "J", ORANGE, "SR04L_ECHO_D3")
+    wire_conn_to_hole(sr_left, "connector0", 18, TOP_POS, RED, "SR04L_VCC")
+    wire_conn_to_hole(sr_left, "connector3", 19, TOP_GND, BLACK, "SR04L_GND")
 
     # ---- 3.3V time-of-flight sensor, behind a bidirectional I2C level shifter --
     # The Nano's I2C lines are 5V; the VL53L4CD module is 3.3V-only and not 5V
     # tolerant, so the shifter sits between them. HV side faces the Nano.
+    # Sit the shifter directly below the Nano's A4/A5 pins so its HV wires are
+    # short verticals rather than diagonals across the whole board.
     shifter = sk.add_part(shift, 0, 0, "LevelShifter1")
-    shifter["x"] = hole_scene(48, "A")[0]
-    shifter["y"] = hole_scene(48, "A")[1] + 128.0
     hv1 = shift.connector_by_name("HV1")
+    shifter["x"] = hole_scene(ana["A4"], "A")[0] - shift.offset(hv1)[0]
+    shifter["y"] = BY + bb.scene_h + 70.0
     hv2 = shift.connector_by_name("HV2")
     hv = shift.connector_by_name("HV")
     lv1 = shift.connector_by_name("LV1")
@@ -694,8 +704,8 @@ def build(parts_dir: str, out_path: str) -> int:
     wire_conn_to_hole(shifter, lv, ana["3V3"], "A", ORANGE, "3V3_to_shifter_LV")
 
     tof = sk.add_part(tof_part, 0, 0, "ToF_VL53L4CD")
-    tof["x"] = shifter["x"] + 150.0
-    tof["y"] = shifter["y"] + 6.0
+    tof["x"] = shifter["x"] + 92.0
+    tof["y"] = shifter["y"] + 10.0
     tof_conns = sorted(
         tof_part.conn_svgid,
         key=lambda c: int("".join(ch for ch in c if ch.isdigit()) or 0),
@@ -710,71 +720,76 @@ def build(parts_dir: str, out_path: str) -> int:
         sk.instances.remove(tof)
 
     # ---- notes ----
+    # Vertical zones, so nothing lands on the board or the modules:
+    #   above:  notes | ultrasonic modules | board
+    #   below:  board | shifter + ToF and the controller stubs | notes
+    NOTE_ABOVE_Y = BY - SR_LIFT - sr04.scene_h - 130.0
+    NOTE_BELOW_Y = BY + bb.scene_h + 160.0
     sk.add_note(
-        BX - 6, BY - 190, 300, 104,
+        BX - 6, NOTE_ABOVE_Y, 320, 128,
         note_html(
             "STRIX - controller takeover, Variant B (PWM wiper synthesis)\n"
             "\n"
             "The Nano synthesizes the two wiper voltages that the handheld\n"
             "controller's trigger and steering pots used to produce. Each\n"
             "channel is a 4.7k + 1uF RC low-pass filter on a Timer1 PWM pin.\n"
-            "D9 = throttle, D10 = steering, A0 = controller rail sense."
+            "D9 = throttle, D10 = steering, A0 = controller rail sense.\n"
+            "\n"
+            "The Nano is rotated so its USB end faces the left board edge;\n"
+            "the phone's OTG cable exits left and powers the Nano."
         ),
         "Note_title",
     )
     sk.add_note(
-        BX + 300, BY - 190, 292, 104,
+        BX + 330, NOTE_ABOVE_Y, 320, 128,
         note_html(
-            "ORANGE (A0): to the controller's pot HIGH / rail pin.\n"
-            "Scales every duty to the sagging AA rail so calibrated\n"
-            "neutral cannot drift. Do not omit this wire.\n"
-            "\n"
-            "Nano is rotated so the USB end faces the board edge; the\n"
-            "phone's OTG cable exits left and powers the Nano."
-        ),
-        "Note_rail",
-    )
-    sk.add_note(
-        BX + 60, BY + 250, 300, 92,
-        note_html(
-            "BLUE  -> controller TRIGGER pot WIPER pin\n"
-            "GREEN -> controller WHEEL pot WIPER pin\n"
-            "BLACK -> controller GROUND (pot LOW pin)\n"
-            "\n"
-            "Identify which harness wire is the wiper before cutting:\n"
-            "see docs/pot-identification.md. On this build's Hosim\n"
-            "controller the BLACK harness wire was the wiper."
-        ),
-        "Note_outputs",
-    )
-    sk.add_note(
-        BX - 6, BY - 330, 300, 120,
-        note_html(
-            "FORWARD-PERCEPTION ARRAY\n"
+            "FORWARD-PERCEPTION ARRAY (above the board)\n"
             "\n"
             "HC-SR04 ultrasonics, front-left and front-right corners:\n"
-            "  TRIG/ECHO -> D2/D3 (left), D4/D5 (right), 5V + GND rails.\n"
-            "Mount them on the corners angled ~15 deg outward, at bumper\n"
+            "  front-left  TRIG/ECHO -> D2 / D3\n"
+            "  front-right TRIG/ECHO -> D4 / D5\n"
+            "  VCC -> top + rail, GND -> top - rail\n"
+            "Mount them on the corners angled ~15 deg outward at bumper\n"
             "height. Left/right is the CAR's perspective, not yours.\n"
-            "See docs/sensor-wiring.md for placement and aiming."
+            "Placement and aiming: docs/sensor-wiring.md"
         ),
         "Note_ultrasonics",
     )
     sk.add_note(
-        BX + 300, BY + 250, 296, 128,
+        BX - 6, NOTE_BELOW_Y, 320, 150,
         note_html(
-            "3.3V TIME-OF-FLIGHT SENSOR (centre beam)\n"
+            "3.3V TIME-OF-FLIGHT SENSOR - the centre beam\n"
             "\n"
             "The 4-pin header stands in for the VL53L4CD / Modulino\n"
-            "Distance module - Fritzing has no part for it.\n"
-            "SDA/SCL cross a bidirectional I2C level shifter because the\n"
-            "Nano's I2C is 5V logic and the module is 3.3V-only and NOT\n"
-            "5V tolerant. HV side faces the Nano (A4/A5 + 5V), LV side\n"
-            "faces the module.\n"
-            "ORANGE 3V3 comes straight off the Nano's 3V3 pin, never a\n"
-            "5V rail, and drives only this module (~50mA budget)."
+            "Distance module; Fritzing has no part for it.\n"
+            "\n"
+            "SDA/SCL cross a bidirectional I2C level shifter: the Nano's\n"
+            "I2C is 5V logic and the module is 3.3V-only and NOT 5V\n"
+            "tolerant. HV side faces the Nano (A4/A5 + 5V), LV side faces\n"
+            "the module.\n"
+            "ORANGE 3V3 runs straight off the Nano's 3V3 pin - never a 5V\n"
+            "rail - and drives only this module (~50mA budget)."
         ),
         "Note_tof",
+    )
+    sk.add_note(
+        BX + 330, NOTE_BELOW_Y, 320, 150,
+        note_html(
+            "TO THE HANDHELD CONTROLLER (loose ends, below)\n"
+            "\n"
+            "BLUE   -> TRIGGER pot WIPER pin\n"
+            "GREEN  -> WHEEL pot WIPER pin\n"
+            "PURPLE -> pot HIGH / rail pin, into A0\n"
+            "BLACK  -> controller GROUND (pot LOW pin)\n"
+            "\n"
+            "PURPLE is the rail sense: it scales every PWM duty to the\n"
+            "sagging AA rail so calibrated neutral cannot drift. Do not\n"
+            "omit it.\n"
+            "Identify which harness wire is the wiper BEFORE cutting - see\n"
+            "docs/pot-identification.md. On this build's Hosim controller\n"
+            "the BLACK harness wire was the wiper."
+        ),
+        "Note_outputs",
     )
 
     xml = sk.to_xml(os.path.basename(out_path))
@@ -799,19 +814,43 @@ def build(parts_dir: str, out_path: str) -> int:
     return 0 if worst < 2.0 else 1
 
 
+# Prefer the parts library that the Fritzing application itself loads. Resolving
+# against a git clone instead is how the "Unable to find part" bug happened: the
+# clone can carry parts the installed release has never heard of.
+PARTS_SEARCH = [
+    "/Applications/Fritzing.app/Contents/Resources/fritzing-parts",
+    os.path.expanduser("~/Applications/Fritzing.app/Contents/Resources/fritzing-parts"),
+    "/usr/share/fritzing/fritzing-parts",
+    os.path.expanduser("~/Source/fritzing-parts"),
+]
+
+
+def find_parts_dir():
+    for d in PARTS_SEARCH:
+        if os.path.isdir(os.path.join(d, "core")):
+            return d
+    return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--parts", default=os.path.expanduser("~/Source/fritzing-parts"),
-                    help="path to a fritzing-parts clone")
+    ap.add_argument("--parts", default=None,
+                    help="parts library to resolve against; defaults to the "
+                         "installed Fritzing app's bundled parts")
     ap.add_argument("--out", default="docs/diagrams/strix-takeover-breadboard.fzz",
                     help="output .fzz path")
     args = ap.parse_args(argv)
-    if not os.path.isdir(args.parts):
-        print(f"error: fritzing-parts not found at {args.parts}", file=sys.stderr)
-        print("clone it, or pass --parts DIR", file=sys.stderr)
+    parts = args.parts or find_parts_dir()
+    if not parts:
+        print("error: no Fritzing parts library found. Install Fritzing, or "
+              "pass --parts DIR", file=sys.stderr)
         return 2
-    return build(args.parts, args.out)
+    if not os.path.isdir(parts):
+        print(f"error: parts library not found at {parts}", file=sys.stderr)
+        return 2
+    print(f"parts library: {parts}")
+    return build(parts, args.out)
 
 
 if __name__ == "__main__":

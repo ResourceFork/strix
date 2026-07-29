@@ -28,40 +28,56 @@ build: the Nano synthesizing both controller wiper voltages through RC filters.
 Left/right on the ultrasonics is the **car's** perspective. Placement and aiming
 are in [`sensor-wiring.md`](../sensor-wiring.md).
 
-### Regenerating it
+### Regenerating and validating it
 
 The file is generated, not hand-drawn, so it diffs and stays consistent with the
 docs:
 
 ```bash
-python3 scripts/generate-fritzing-sketch.py            # needs a fritzing-parts clone
-python3 scripts/generate-fritzing-sketch.py --parts /path/to/fritzing-parts
+python3 scripts/generate-fritzing-sketch.py     # regenerate
+python3 scripts/validate-fritzing-sketch.py     # check before opening Fritzing
 ```
 
-The generator resolves real part geometry out of the
-[fritzing-parts](https://github.com/fritzing/fritzing-parts) library and computes
+The generator resolves real part geometry from a parts library and computes
 absolute scene coordinates itself. Its header documents the geometry model and
 which `fritzing-app` source constants each rule came from.
 
+> ⚠️ **Resolve against the parts library the _application_ ships, not a
+> fritzing-parts git clone.** Fritzing looks parts up by `moduleId` in its own
+> bundled library and ignores the path recorded in the sketch. A clone tracks
+> `develop` and can carry parts the installed release has never heard of — that
+> is exactly how an earlier revision shipped an HC-SR04 whose `moduleId`
+> (`hc-sr04_bf8299a_002`) existed in the clone but not in the app, so the sketch
+> opened with _"Unable to find 1 part(s)"_. Both scripts now default to
+> `/Applications/Fritzing.app/Contents/Resources/fritzing-parts` and take
+> `--parts DIR` to override.
+
 ### How much to trust it
 
-**Verified mechanically:**
+**Verified mechanically** by `validate-fritzing-sketch.py`:
 
-- Every `moduleIdRef` and `connectorId` resolves against the real parts library.
-- All 192 connection endpoints are reciprocal, with no dangling references.
+- Every `moduleIdRef` resolves in the **installed** app's library, and every
+  `connectorId` exists on that part.
+- All 192 connection endpoints are reciprocal, with no dangling references, and
+  every `modelIndex` is unique.
 - Every part pin declared as plugged into a hole lands on that hole's computed
   position — worst case **9 mils** (0.009"), which is the resistor's fixed
   0.409" lead span against a 0.4" four-column pitch.
-- Rail targets are snapped to holes that exist: rail rows skip a column every
-  five, so a computed rail column frequently isn't a real hole.
+- Rail targets snap to holes that exist: rail rows skip a column every five, so
+  a computed rail column frequently isn't a real hole.
 
-**Verified by eye (first revision):** the Nano's rotation direction, and that no
-wire is drawn collinear over a component. Both were wrong in the first cut — the
-USB faced the wrong way, and a run along row B hid R1 completely.
+**Fixed after opening it in Fritzing:**
 
-**Still not verified:** fine cosmetics — wire curvature, note placement, label
-overlap. The schematic and PCB views are unstyled; only breadboard view was laid
-out deliberately.
+| Symptom                               | Cause                                                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| USB faced the wrong way               | The Nano SVG's low-y edge is the ICSP header, not the USB end, so the rotation went the wrong direction |
+| R1 invisible                          | A wire ran collinear along the same row as the resistor, drawing over it                                |
+| "Unable to find 1 part(s)"            | Validated against a fritzing-parts clone instead of the installed app                                   |
+| Long diagonal wires across the canvas | Modules parked too far from the pins they wire to                                                       |
+
+**Still not verified:** fine cosmetics — wire curvature and label overlap. The
+schematic and PCB views are unstyled; only breadboard view was laid out
+deliberately.
 
 If a part shows up in the wrong place, the generator is the thing to fix, not the
 `.fzz`.
