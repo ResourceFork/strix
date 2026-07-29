@@ -249,12 +249,38 @@ def seg_cross(p1, p2, p3, p4, eps=1e-9, tol=1e-3):
     return tol < t < 1 - tol and tol < u < 1 - tol
 
 
+def seg_overlap(p1, p2, p3, p4, eps=1e-6, min_len=0.5):
+    """True if two segments are collinear and share more than a point.
+
+    Two wires lying on top of each other are not a crossing - the determinant is
+    zero, so an intersection test says they are fine - but they are worse to look
+    at than a crossing, because one wire is simply invisible. Worth scoring.
+    """
+    d1 = (p2[0] - p1[0], p2[1] - p1[1])
+    d2 = (p4[0] - p3[0], p4[1] - p3[1])
+    if abs(d1[0] * d2[1] - d1[1] * d2[0]) > eps:
+        return False  # not parallel
+    # parallel: also require collinear, i.e. p3 on the line through p1,p2
+    if abs(d1[0] * (p3[1] - p1[1]) - d1[1] * (p3[0] - p1[0])) > 1e-3:
+        return False
+    L = (d1[0] ** 2 + d1[1] ** 2) ** 0.5
+    if L < eps:
+        return False
+    # project both segments onto the shared direction and intersect the spans
+    def proj(p):
+        return ((p[0] - p1[0]) * d1[0] + (p[1] - p1[1]) * d1[1]) / L
+
+    a0, a1 = 0.0, L
+    b0, b1 = sorted((proj(p3), proj(p4)))
+    return min(a1, b1) - max(a0, b0) > min_len
+
+
 def polyline_crossings(a, b):
-    """How many times polyline a crosses polyline b."""
+    """How many times polyline a crosses or overlaps polyline b."""
     n = 0
     for s0, s1 in zip(a, a[1:]):
         for t0, t1 in zip(b, b[1:]):
-            if seg_cross(s0, s1, t0, t1):
+            if seg_cross(s0, s1, t0, t1) or seg_overlap(s0, s1, t0, t1):
                 n += 1
     return n
 

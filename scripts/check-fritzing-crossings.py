@@ -97,6 +97,30 @@ def cross(p1, p2, p3, p4, eps=1e-6):
     return None
 
 
+def overlap(p1, p2, p3, p4, eps=1e-6, min_len=0.5):
+    """Collinear segments sharing more than a point.
+
+    Not a crossing - the determinant is zero so an intersection test passes them
+    - but worse to look at, because one wire is drawn invisibly underneath the
+    other. Reported separately.
+    """
+    d1 = (p2[0] - p1[0], p2[1] - p1[1])
+    d2 = (p4[0] - p3[0], p4[1] - p3[1])
+    if abs(d1[0] * d2[1] - d1[1] * d2[0]) > eps:
+        return False
+    if abs(d1[0] * (p3[1] - p1[1]) - d1[1] * (p3[0] - p1[0])) > 1e-3:
+        return False
+    L = (d1[0] ** 2 + d1[1] ** 2) ** 0.5
+    if L < eps:
+        return False
+
+    def proj(p):
+        return ((p[0] - p1[0]) * d1[0] + (p[1] - p1[1]) * d1[1]) / L
+
+    b0, b1 = sorted((proj(p3), proj(p4)))
+    return min(L, b1) - max(0.0, b0) > min_len
+
+
 def shares_point(s, t, eps=0.75):
     for p in (s["a"], s["b"]):
         for q in (t["a"], t["b"]):
@@ -107,11 +131,14 @@ def shares_point(s, t, eps=0.75):
 
 keys = sorted(segs)
 hits = []
+laps = []
 for i, mi in enumerate(keys):
     for mj in keys[i + 1:]:
         if run_of[mi] == run_of[mj]:
             continue
         s, t = segs[mi], segs[mj]
+        if overlap(s["a"], s["b"], t["a"], t["b"]):
+            laps.append((run_of[mi], run_of[mj], s["a"]))
         if shares_point(s, t):
             continue
         pt = cross(s["a"], s["b"], t["a"], t["b"])
@@ -131,4 +158,12 @@ else:
         where = ", ".join(f"({p[0]:.1f},{p[1]:.1f})" for p in pts)
         print(f"  {a}  x  {b}")
         print(f"      at {where}")
-raise SystemExit(1 if hits else 0)
+
+if laps:
+    pairs = sorted({tuple(sorted((a, b))) for a, b, _ in laps})
+    print(f"\n{len(laps)} collinear overlap(s) among {len(pairs)} run pair(s) "
+          f"- one wire hidden under another:\n")
+    for a, b in pairs:
+        print(f"  {a}  ==  {b}")
+
+raise SystemExit(1 if (hits or laps) else 0)
