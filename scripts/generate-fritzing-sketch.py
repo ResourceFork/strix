@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import itertools
 import os
 import re
 import sys
@@ -219,6 +220,100 @@ ROT_CCW = (0.0, -1.0, 1.0, 0.0, 0.0, None)
 def qt_map(m, p):
     m11, m12, m21, m22, m31, m32 = m
     return (m11 * p[0] + m21 * p[1] + m31, m12 * p[0] + m22 * p[1] + m32)
+
+
+# --------------------------------------------------------------------------
+# Orthogonal routing
+#
+# Wires are drawn like PCB raceways: horizontal and vertical only, turning in
+# lanes on the 0.1in hole lattice. A group of wires leaving the same connector
+# column fans out through a band of vertical lanes, one lane each.
+#
+# Which wire gets which lane decides whether the fan is clean or tangled, and
+# the answer is not intuitive - a wire heading to a deeper row generally has to
+# turn before one heading to a shallower row, but the source order fights that.
+# So rather than reason it out per module, solve_comb searches lane orderings
+# and returns one that provably does not cross itself.
+# --------------------------------------------------------------------------
+
+
+def seg_cross(p1, p2, p3, p4, eps=1e-9, tol=1e-3):
+    """True if two segments properly cross (touching at an end doesn't count)."""
+    d1 = (p2[0] - p1[0], p2[1] - p1[1])
+    d2 = (p4[0] - p3[0], p4[1] - p3[1])
+    den = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(den) < eps:
+        return False
+    t = ((p3[0] - p1[0]) * d2[1] - (p3[1] - p1[1]) * d2[0]) / den
+    u = ((p3[0] - p1[0]) * d1[1] - (p3[1] - p1[1]) * d1[0]) / den
+    return tol < t < 1 - tol and tol < u < 1 - tol
+
+
+def polyline_crossings(a, b):
+    """How many times polyline a crosses polyline b."""
+    n = 0
+    for s0, s1 in zip(a, a[1:]):
+        for t0, t1 in zip(b, b[1:]):
+            if seg_cross(s0, s1, t0, t1):
+                n += 1
+    return n
+
+
+def dogleg(p0, p1, turn_x):
+    """Right-angled route: out horizontally, along a vertical lane, then in.
+
+    For connectors in a vertical column, wiring off to the side.
+    """
+    if abs(p0[1] - p1[1]) < 1e-6:
+        return [p0, p1]  # already level: a straight run is prettier
+    return [p0, (turn_x, p0[1]), (turn_x, p1[1]), p1]
+
+
+def dogleg_y(p0, p1, turn_y):
+    """Right-angled route: out vertically, along a horizontal lane, then in.
+
+    For connectors in a horizontal row, wiring above or below. Where a pin sits
+    directly over its target the whole route collapses to one straight drop,
+    which is the tidiest outcome available and worth keeping.
+    """
+    if abs(p0[0] - p1[0]) < 1e-6:
+        return [p0, p1]
+    return [p0, (p0[0], turn_y), (p1[0], turn_y), p1]
+
+
+def solve_comb(endpoints, lanes, axis="x"):
+    """Assign each (p0, p1) its own lane so the bundle doesn't cross itself.
+
+    axis="x" routes through vertical lanes (for pins in a column), axis="y"
+    through horizontal lanes (for pins in a row). Tries lane orderings and keeps
+    the best. Returns (crossings, [pts, ...]) in the caller's original order;
+    crossings == 0 means provably clean.
+
+    Searching beats reasoning here. The intuitive rule - wires heading further
+    turn later - is wrong often enough to matter, because the pin order fights
+    the destination order whenever a connector puts power on its outside pins
+    and signal on its inside ones, which is most of them.
+    """
+    n = len(endpoints)
+    if n > len(lanes):
+        raise ValueError(f"need {n} lanes, got {len(lanes)}")
+    bend = dogleg if axis == "x" else dogleg_y
+    best = None
+    for perm in itertools.permutations(range(n)):
+        routes = [None] * n
+        for slot, idx in enumerate(perm):
+            p0, p1 = endpoints[idx]
+            routes[idx] = bend(p0, p1, lanes[slot])
+        total = sum(
+            polyline_crossings(routes[i], routes[j])
+            for i in range(n)
+            for j in range(i + 1, n)
+        )
+        if best is None or total < best[0]:
+            best = (total, routes)
+        if total == 0:
+            break
+    return best
 
 
 # --------------------------------------------------------------------------
