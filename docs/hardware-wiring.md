@@ -62,6 +62,7 @@ Waterproof cars (Hosim, and most cars sold as "all-terrain") are Path B.
 | **[Path B: calibration worksheet](controller-takeover-calibration.md)** | Fill-in-the-blanks checklist for measurements and calibration values | You're on Path B, during the build |
 | **[Add-on: sensor wiring](sensor-wiring.md)** | Forward-perception array: time-of-flight + ultrasonics, placement and pins | You want measured obstacle distances |
 | **[Serial protocol](serial-protocol.md)** | The command language the phone and Nano share, and how to drive it by hand | Testing, debugging, or writing code |
+| **[Diagrams](diagrams/README.md)** | A Fritzing breadboard diagram of the Path B build, and how to regenerate it | You want a picture of the breadboard layout |
 
 ### Suggested reading order
 

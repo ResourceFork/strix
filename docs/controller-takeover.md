@@ -217,6 +217,11 @@ Don't know which wire is which? → **[Identify the pots](pot-identification.md)
   Controller ground ─────────── GND
 ```
 
+> 📐 **Prefer a picture?** [`docs/diagrams/`](diagrams/README.md) holds a
+> Fritzing breadboard diagram of exactly this circuit — the Nano's rotation,
+> both filters, the rails, and labelled wire ends for each controller
+> connection.
+
 Values are uncritical: **R 1–10 kΩ, C 0.5–10 µF** (bigger C = smoother but
 slower to settle). The resistive element of a sacrificed pot works fine as the R.
 → [Parts and salvage options](parts-and-shopping.md#variant-b-pwm-wiper-synthesis--recommended)
