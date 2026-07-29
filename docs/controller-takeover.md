@@ -154,6 +154,40 @@ free digital pins work for the CS lines.)
 > ground. Without it, the wiper voltages the digipots produce are meaningless to
 > the controller chip.
 
+## Digipot pin-by-pin (MCP41010)
+
+The part that trips people up: **the controller's pots never wire to the Nano
+at all.** The mechanical pots come *out*, the digipots take their place inside
+the controller, and each digipot straddles the two worlds:
+
+- its **digital side** (CS, SCK, SI) is driven by the Nano over SPI — these
+  plus ground are the only five wires between Nano and controller;
+- its **analog side** (PA0 / PW0 / PB0) lands on the exact pads the mechanical
+  pot vacated, powered by the controller's own battery rail — the Nano's 5V
+  never enters the controller.
+
+For the MCP41010 in the 8-pin DIP package, both chips wire identically except
+for CS:
+
+| Digipot pin | Name | Wire to | Notes |
+|---|---|---|---|
+| 1 | CS | Nano **D7** (trigger chip) / **D8** (wheel chip) | The only pin that differs between the two chips |
+| 2 | SCK | Nano **D13** | Shared by both chips |
+| 3 | SI | Nano **D11** | Shared by both chips |
+| 4 | VSS | Controller **ground** | Same node as the pot's LOW pad; ties into the common ground with the Nano |
+| 5 | PB0 | Controller pot **LOW** pad | Where the old pot's ground-side terminal sat |
+| 6 | PW0 | Controller pot **WIPER** pad | The pad the controller chip reads |
+| 7 | PA0 | Controller pot **HIGH** pad | The pad at the controller's supply rail |
+| 8 | VDD | Controller **supply rail** (~4.5V from 3×AA) | Never the Nano's 5V; must stay within the digipot's rating (see the BOM warning) |
+
+Working order per control: identify the pot's three pads with a multimeter
+*while the pot is still in place* (HIGH sits at the rail voltage, LOW at 0V,
+WIPER sweeps as you move the trigger/wheel — step 2 of
+[Before you build](#before-you-build--open-the-controller-and-confirm)), label
+the pads, desolder the pot, then land PA0/PW0/PB0 on those same three pads.
+Because the digipot divides the controller's own rail, the wiper voltage
+automatically matches what the controller chip expects.
+
 ## Before you build — open the controller and confirm
 
 1. **Confirm the trigger and wheel are potentiometers** (3 terminals, wiper

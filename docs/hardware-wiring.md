@@ -7,6 +7,15 @@ The car's "brain" is an **Arduino Nano**. The phone runs the Strix app and talks
 to the Nano over a USB cable. The Nano then sends signals to the parts that
 actually move the car.
 
+> **Sealed receiver+ESC combo?** This doc assumes your ESC has a signal wire
+> you can plug straight into the Nano. If it doesn't — waterproof Hosim-style
+> cars pot the receiver and ESC into one sealed brick with no input but its
+> own 2.4GHz radio — the drive-side wiring below doesn't apply. Use
+> [`controller-takeover.md`](controller-takeover.md) instead: the Nano drives
+> digital potentiometers planted inside a spare handheld controller, and the
+> controller's stock radio does the rest. (The distance-sensor section further
+> down applies to both builds.)
+
 ## The parts (and their acronyms)
 
 | Part | What it is | Its job |
