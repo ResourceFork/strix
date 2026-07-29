@@ -13,13 +13,13 @@ Do everything from "Bench test" onward with the **car's wheels off the ground.**
 Fill these in before you buy/solder:
 
 | Item | Value | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Car model | `X15` | (yours) |
 | Controller part | `F12025` | Hosim replacement transmitter |
-| Trigger pot resistance (HIGH→LOW) | `______ kΩ` | measure end-to-end with a multimeter |
-| Wheel pot resistance (HIGH→LOW) | `______ kΩ` | |
+| Trigger pot resistance (HIGH→LOW) | `~5.2 kΩ` | 5k nominal; via wiper-pair sum (4.4k + ~840Ω at full forward) |
+| Wheel pot resistance (HIGH→LOW) | `~5.2 kΩ` | 5k nominal; wiper-pair sum constant at every position |
 | Controller supply rail voltage | `______ V` | usually 3×AA = 4.5V |
-| Digipot part chosen | `____________` | e.g. MCP41010 (10k) |
+| Digipot part chosen | `____________` | e.g. MCP41010 (10k works — ratiometric) or MCP4151-502 (exact 5k, needs `setWiper()` tweak) |
 | Digipot max voltage rating | `______ V` | **must be ≥ the controller rail** |
 
 > If the rail voltage is above your digipot's max rating, either pick a
@@ -34,11 +34,30 @@ rail voltage), WIPER (voltage sweeps as you move the control), and LOW (0V).
 Write the pad label/position so you solder the digipot the right way round.
 
 | Pot | HIGH pad | WIPER pad | LOW pad |
-|---|---|---|---|
-| Trigger (throttle) | `______` | `______` | `______` |
-| Wheel (steering) | `______` | `______` | `______` |
+| --- | --- | --- | --- |
+| Trigger (throttle) | `______` (red or white) | `black` (center wire) | `______` (red or white) |
+| Wheel (steering) | `______` (red or white) | `black` (center wire) | `______` (red or white) |
 
 Digipot mapping (same for both): `HIGH→PA0`, `WIPER→PW0`, `LOW→PB0`.
+
+**Measured so far (this build)** — pots isolated (unplugged from the board),
+black probe on the black center wire:
+
+| Pot | black↔white | black↔red | Rest |
+| --- | --- | --- | --- |
+| Wheel | 52Ω (full right) → 4.67k (full left) | 5.2k (right) → ~570Ω (left) | ~2.7k / ~2.55k |
+| Trigger | 1.99k (full reverse) → 4.4k (full forward) | 3.7k (reverse) → ~840Ω (forward) | 2.77k / 2.55k |
+
+- Both pots: wiper-pair sum ≈ 5.2k at every position → healthy, track ~5.2k.
+- Sweep senses are **opposite**: wheel-right moves toward the white end,
+  trigger-forward moves toward the red end. Wire by measurement, not assumption.
+- Trigger uses only ~46% of the track, forward span ≈ 2× reverse span — expect
+  `THR_NEUTRAL` well away from 128.
+- **Still pending:** which of red/white is HIGH vs LOW per pot — the powered
+  board-side socket test (controller on, **car off**, DC volts, black probe on
+  battery negative: rail pin = HIGH→PA0, 0V pin = LOW→PB0, floating pin =
+  WIPER→PW0). Fill the table above from that test, then record the rail
+  voltage in section 1.
 
 ---
 
