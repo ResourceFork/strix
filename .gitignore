@@ -36,3 +36,7 @@ google-services.json
 # Android Profiling
 *.hprof
 .DS_Store
+
+# Python bytecode from the scripts/ helpers
+__pycache__/
+*.py[cod]
