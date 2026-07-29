@@ -9,9 +9,10 @@ controller and the radio receiver are one waterproof brick, the steering servo
 plugs into that brick, and the only way in is over the air from the car's own
 handheld controller.
 
-> **New to this? Read [`hardware-wiring.md`](hardware-wiring.md) first.** That doc
-> covers the "normal" case where the ESC has a signal wire you connect straight
-> to the Nano. This doc is the workaround for when it *doesn't*.
+> **New to this? Start with the [hardware wiring overview](hardware-wiring.md)**
+> for the parts and concepts. The "normal" case — an ESC with a signal wire you
+> connect straight to the Nano — is covered in [`esc-wiring.md`](esc-wiring.md).
+> This doc is the workaround for when your ESC *doesn't have* a signal wire.
 
 ## Why not just emulate the radio?
 
@@ -122,7 +123,7 @@ know or match its precise voltage.
 ## Bill of materials
 
 | Qty | Part | Notes |
-|---|---|---|
+| --- | --- | --- |
 | 1 | **Second Hosim controller** matching your car | Sacrificial. Keep the original for manual driving. See below. |
 | 2 | **Digital potentiometer**, SPI, matched to the controller's pot value | e.g., MCP41010 (10k). Match the resistance to the controller's pots and pick a part rated **above** the controller's supply voltage. |
 | 1 | Arduino Nano | You already have this. |
@@ -149,7 +150,7 @@ know or match its precise voltage.
 SPI on the Nano (Uno/Nano pinout):
 
 | Signal | Nano pin | Goes to |
-|---|---|---|
+| --- | --- | --- |
 | SCK (clock) | **D13** | Both digipots' SCK |
 | MOSI (data) | **D11** | Both digipots' SI/data |
 | CS — throttle | **D7** | Digipot 1 chip-select |
@@ -180,7 +181,7 @@ For the MCP41010 in the 8-pin DIP package, both chips wire identically except
 for CS:
 
 | Digipot pin | Name | Wire to | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | CS | Nano **D7** (trigger chip) / **D8** (wheel chip) | The only pin that differs between the two chips |
 | 2 | SCK | Nano **D13** | Shared by both chips |
 | 3 | SI | Nano **D11** | Shared by both chips |
@@ -207,7 +208,7 @@ harness side on the digipot instead. The servo-style color convention
 *suggests* this mapping:
 
 | Wire color | Pot terminal | Digipot pin |
-|---|---|---|
+| --- | --- | --- |
 | Red | HIGH — controller supply rail | **PA0** (pin 7) |
 | Black | LOW — ground | **PB0** (pin 5) |
 | White | WIPER — the signal the controller chip reads | **PW0** (pin 6) |
@@ -273,7 +274,7 @@ is then just a resolder.
 1. **Confirm the trigger and wheel are potentiometers** (3 terminals, wiper
    voltage sweeps smoothly), not on/off switches. If they're switches, this
    approach only gives full-on/full-off; consider swapping the ESC instead
-   (see `hardware-wiring.md`).
+   (see `esc-wiring.md`).
 2. **Identify each pot's three terminals** with a multimeter: HIGH (sits at the
    rail voltage), LOW (0V/ground), WIPER (sweeps between the two as you move the
    control).
@@ -402,7 +403,7 @@ car on the ground.
 ## Troubleshooting
 
 | Symptom | Likely cause / fix |
-|---|---|
+| --- | --- |
 | Controller no longer drives the car at all | Not paired, or a digipot terminal is miswired. Verify manual behavior before/after each change; re-run the bind procedure. |
 | Car creeps at `T1:0` | `THR_NEUTRAL` is off — nudge it until the car is dead stopped. |
 | Throttle/steering reversed | Swap `..._MIN`/`..._MAX` (or `LEFT`/`RIGHT`) in the calibration constants. |
@@ -437,7 +438,8 @@ model's bind steps in its manual.
 
 ## Reference
 
-- The "normal" wired-ESC guide: [`hardware-wiring.md`](hardware-wiring.md)
+- Hardware overview and doc map: [`hardware-wiring.md`](hardware-wiring.md)
+- The "normal" wired-ESC guide: [`esc-wiring.md`](esc-wiring.md)
 - Calibration worksheet: [`controller-takeover-calibration.md`](controller-takeover-calibration.md)
 - Ready-to-flash firmware: `arduino/ControllerTakeover/ControllerTakeover.ino`
 - Original servo/ESC firmware: `arduino/EscServoController/EscServoController.ino`
