@@ -46,6 +46,7 @@ RED = "#ff1a1a"
 BLUE = "#418dd9"
 GREEN = "#47bb24"
 ORANGE = "#ff7e00"
+PURPLE = "#8c4be8"
 WIRE_MILS = "24"
 
 
@@ -178,6 +179,22 @@ class Breadboard(Part):
             if svgid == want:
                 return cid
         raise KeyError(want)
+
+    def columns_in_row(self, row: str):
+        out = []
+        for svgid in self.conn_svgid.values():
+            m = re.fullmatch(rf"pin(\d+){row}", svgid or "")
+            if m:
+                out.append(int(m.group(1)))
+        return sorted(out)
+
+    def nearest_col(self, col: int, row: str) -> int:
+        """Snap to a hole that exists. Rail rows skip a column every five, so a
+        computed rail column is often not a real hole."""
+        cols = self.columns_in_row(row)
+        if not cols:
+            raise KeyError(f"row {row} has no holes")
+        return min(cols, key=lambda c: (abs(c - col), c))
 
 
 IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
@@ -458,11 +475,36 @@ def note_html(body: str) -> str:
 # Breadboard row -> which half it belongs to is implicit; these are the rows the
 # layout uses. Rails: Z = top ground, Y = top +, X = bottom ground, W = bottom +
 # (established from the blue/red marker lines in breadboard2.svg).
-TOP_GND, TOP_POS, BOT_GND = "Z", "Y", "X"
+TOP_GND, TOP_POS, BOT_GND, BOT_POS = "Z", "Y", "X", "W"
 
-NANO_FIRST_COL = 2  # leftmost Nano pin column; USB then faces the left edge
-NANO_UPPER_ROW = "H"  # 5V / 3V3 / A0 side
-NANO_LOWER_ROW = "D"  # D2..D12 side, so the filters sit in rows C/B/A below
+NANO_FIRST_COL = 2  # leftmost Nano pin column
+NANO_UPPER_ROW = "H"  # digital side: D1..D12 (so D9/D10 live here)
+NANO_LOWER_ROW = "D"  # analog side: VIN/5V/A7..A0/3V3/D13
+
+# The Nano's SVG is vertical with the ICSP header at the low-y edge and the USB
+# connector at the high-y edge. Rotating 90 degrees CLOCKWISE maps local y to
+# decreasing scene x, which puts the USB end on the LEFT:
+#     map(x, y) = (scene_h - y, x)
+# so the digital pin row (local x = 4.5) becomes the upper breadboard row and
+# pin k sits at column NANO_FIRST_COL + (14 - k).
+NANO_PIN_COUNT = 15
+
+
+def nano_col(first_col: int, k: int) -> int:
+    return first_col + (NANO_PIN_COUNT - 1 - k)
+
+
+# Pin index along each header, counting from the ICSP end (k = 0).
+DIGITAL_K = {
+    "D1": 0, "D0": 1, "RESET": 2, "GND": 3, "D2": 4, "D3": 5, "D4": 6,
+    "D5": 7, "D6": 8, "D7": 9, "D8": 10, "D9": 11, "D10": 12, "D11": 13,
+    "D12": 14,
+}
+ANALOG_K = {
+    "VIN": 0, "GND": 1, "RESET": 2, "5V": 3, "A7": 4, "A6": 5, "A5": 6,
+    "A4": 7, "A3": 8, "A2": 9, "A1": 10, "A0": 11, "AREF": 12, "3V3": 13,
+    "D13": 14,
+}
 
 
 def build(parts_dir: str, out_path: str) -> int:
@@ -470,6 +512,11 @@ def build(parts_dir: str, out_path: str) -> int:
     nano = Part(parts_dir, "core/Arduino Nano3(fix).fzp")
     res = Part(parts_dir, "core/resistor.fzp")
     cap = Part(parts_dir, "core/capacitor_ceramic_100mil.fzp")
+    sr04 = Part(parts_dir, "core/hc-sr04_bf8299a_002.fzp")
+    shift = Part(parts_dir, "core/I2C level shifter bidirectional.fzp")
+    # No VL53L4CD part exists in the library, so a 4-pin header stands in for
+    # the module's Qwiic breakout; the note names it explicitly.
+    tof_part = Part(parts_dir, "core/sparkfun-connectors-m04-jst-pth.fzp")
 
     sk = Sketch(parts_dir)
 
@@ -477,9 +524,18 @@ def build(parts_dir: str, out_path: str) -> int:
     bb_inst = sk.add_part(bb, BX, BY, "Breadboard1")
     bb_inst["is_breadboard"] = True
 
+    RAIL_ROWS = (TOP_GND, TOP_POS, BOT_GND, BOT_POS)
+
+    def snap(col, row):
+        """Rail rows have gaps; land on a hole that actually exists."""
+        return bb.nearest_col(col, row) if row in RAIL_ROWS else col
+
     def hole_scene(col, row):
-        hx, hy = bb.hole(col, row)
+        hx, hy = bb.hole(snap(col, row), row)
         return BX + hx, BY + hy
+
+    def hole_cid(col, row):
+        return bb.hole_connector(snap(col, row), row)
 
     def tie(part_inst, conn_id, col, row):
         """Declare a part connector as plugged into a hole, and check geometry."""
@@ -487,7 +543,7 @@ def build(parts_dir: str, out_path: str) -> int:
             part_inst,
             conn_id,
             bb_inst,
-            bb.hole_connector(col, row),
+            hole_cid(col, row),
             "breadboard",
             "breadboardbreadboard",
         )
@@ -500,9 +556,9 @@ def build(parts_dir: str, out_path: str) -> int:
     def wire_hole_to_hole(c0, r0, c1, r1, color, title):
         p0, p1 = hole_scene(c0, r0), hole_scene(c1, r1)
         w = sk.add_wire(p0, p1, color, title)
-        sk.join(w, "connector0", bb_inst, bb.hole_connector(c0, r0),
+        sk.join(w, "connector0", bb_inst, hole_cid(c0, r0),
                 "breadboardWire", "breadboardbreadboard")
-        sk.join(w, "connector1", bb_inst, bb.hole_connector(c1, r1),
+        sk.join(w, "connector1", bb_inst, hole_cid(c1, r1),
                 "breadboardWire", "breadboardbreadboard")
         return w
 
@@ -510,77 +566,148 @@ def build(parts_dir: str, out_path: str) -> int:
         p0 = hole_scene(c0, r0)
         p1 = (p0[0] + dx, p0[1] + dy)
         w = sk.add_wire(p0, p1, color, title)
-        sk.join(w, "connector0", bb_inst, bb.hole_connector(c0, r0),
+        sk.join(w, "connector0", bb_inst, hole_cid(c0, r0),
                 "breadboardWire", "breadboardbreadboard")
         return w
 
-    # ---- Arduino Nano, rotated 90 CCW so the USB end faces the left edge ----
-    nano_t = (0.0, -1.0, 1.0, 0.0, 0.0, nano.scene_w)
-    upper_dy = qt_map(nano_t, (nano.scene_w - 4.5, 13.5))[1]  # ~4.5
-    nano_x = hole_scene(NANO_FIRST_COL, NANO_LOWER_ROW)[0] - 13.5
-    nano_y = hole_scene(NANO_FIRST_COL, NANO_UPPER_ROW)[1] - upper_dy
+    def place_by_connector(inst, conn_id, col, row):
+        """Shift a part so one of its connectors lands exactly in a hole."""
+        off = qt_map(inst["transform"], inst["part"].offset(conn_id))
+        target = hole_scene(col, row)
+        inst["x"], inst["y"] = target[0] - off[0], target[1] - off[1]
+
+    def wire_conn_to_hole(inst, conn_id, col, row, color, title):
+        p0 = sk.connector_scene(inst, conn_id)
+        p1 = hole_scene(col, row)
+        w = sk.add_wire(p0, p1, color, title)
+        sk.join(w, "connector0", inst, conn_id, "breadboardWire", "breadboard")
+        sk.join(w, "connector1", bb_inst, hole_cid(col, row),
+                "breadboardWire", "breadboardbreadboard")
+        return w
+
+    def wire_conn_to_conn(a, ac, b, bc, color, title):
+        p0, p1 = sk.connector_scene(a, ac), sk.connector_scene(b, bc)
+        w = sk.add_wire(p0, p1, color, title)
+        sk.join(w, "connector0", a, ac, "breadboardWire", "breadboard")
+        sk.join(w, "connector1", b, bc, "breadboardWire", "breadboard")
+        return w
+
+    # ---- Arduino Nano, rotated 90 CW so the USB end faces the left edge ----
+    nano_t = (0.0, 1.0, -1.0, 0.0, nano.scene_h, 0.0)
+    nano_x = hole_scene(nano_col(NANO_FIRST_COL, 0), NANO_UPPER_ROW)[0] - qt_map(
+        nano_t, (4.5, 13.5)
+    )[0]
+    nano_y = hole_scene(NANO_FIRST_COL, NANO_UPPER_ROW)[1] - qt_map(
+        nano_t, (4.5, 13.5)
+    )[1]
     nano_inst = sk.add_part(nano, nano_x, nano_y, "Nano1", transform=nano_t)
+    for k in range(NANO_PIN_COUNT):
+        col = nano_col(NANO_FIRST_COL, k)
+        tie(nano_inst, f"connector{16 + k}", col, NANO_UPPER_ROW)  # digital side
+        tie(nano_inst, f"connector{31 + k}", col, NANO_LOWER_ROW)  # analog side
 
-    # Pin k index -> column. Lower row: D1,D0,RESET,GND,D2..D12 (connector16..30)
-    #                Upper row: VIN,GND,RESET,5V,A7..A0,AREF,3V3,D13 (31..45)
-    for k in range(15):
-        col = NANO_FIRST_COL + k
-        tie(nano_inst, f"connector{16 + k}", col, NANO_LOWER_ROW)
-        tie(nano_inst, f"connector{31 + k}", col, NANO_UPPER_ROW)
+    dig = {n: nano_col(NANO_FIRST_COL, k) for n, k in DIGITAL_K.items()}
+    ana = {n: nano_col(NANO_FIRST_COL, k) for n, k in ANALOG_K.items()}
 
-    col_of = {
-        "D9": NANO_FIRST_COL + 11,
-        "D10": NANO_FIRST_COL + 12,
-        "GND_top": NANO_FIRST_COL + 1,
-        "5V": NANO_FIRST_COL + 3,
-        "A0": NANO_FIRST_COL + 11,
-        "3V3": NANO_FIRST_COL + 13,
-    }
+    # ---- power rails ----
+    # Digital-side GND feeds the top ground rail; analog-side GND the bottom one.
+    wire_hole_to_hole(dig["GND"], "I", dig["GND"], TOP_GND, BLACK, "GND_top")
+    wire_hole_to_hole(ana["GND"], "C", ana["GND"], BOT_GND, BLACK, "GND_bottom")
+    wire_hole_to_hole(ana["5V"], "B", ana["5V"], BOT_POS, RED, "5V_to_bottom_rail")
+    wire_hole_to_hole(58, BOT_POS, 58, TOP_POS, RED, "5V_rail_bridge")
 
-    # ---- grounds ----
-    wire_hole_to_hole(col_of["GND_top"], "J", col_of["GND_top"], TOP_GND,
-                      BLACK, "GND_nano_to_top_rail")
-    wire_hole_to_hole(58, TOP_GND, 58, BOT_GND, BLACK, "GND_rail_bridge")
-    wire_hole_to_hole(col_of["5V"], "J", col_of["5V"], TOP_POS,
-                      RED, "5V_nano_to_top_rail")
-
-    # ---- throttle filter: D9 -> R1 -> node -> C1 -> ground ----
-    wire_hole_to_hole(col_of["D9"], "A", 22, "A", BLUE, "D9_to_filter")
+    # ---- throttle: D9 -> across the channel -> R1 -> C1 -> ground ----
+    # Runs live in row I; the drop column must be past the Nano (>16) so the
+    # top and bottom halves of that column are separate nodes.
+    wire_hole_to_hole(dig["D9"], "I", 20, "I", BLUE, "D9_run")
+    wire_hole_to_hole(20, "F", 20, "E", BLUE, "D9_cross_channel")
     r1 = sk.add_part(res, 0, 0, "R1", props={"resistance": "4.7kΩ"})
-    r1_off = res.offset("connector0")
-    r1_target = hole_scene(22, "B")
-    r1["x"], r1["y"] = r1_target[0] - r1_off[0], r1_target[1] - r1_off[1]
-    tie(r1, "connector0", 22, "B")
-    tie(r1, "connector1", 26, "B")
-
+    place_by_connector(r1, "connector0", 20, "D")
+    tie(r1, "connector0", 20, "D")
+    tie(r1, "connector1", 24, "D")
     c1 = sk.add_part(cap, 0, 0, "C1", props={"capacitance": "1µF"})
-    c1_off = cap.offset("connector0")
-    c1_target = hole_scene(26, "C")
-    c1["x"], c1["y"] = c1_target[0] - c1_off[0], c1_target[1] - c1_off[1]
-    tie(c1, "connector0", 26, "C")
-    tie(c1, "connector1", 27, "C")
-    wire_hole_to_hole(27, "B", 27, BOT_GND, BLACK, "C1_to_ground")
-    wire_hole_to_free(26, "A", 0, 86, BLUE, "OUT_trigger_wiper")
+    place_by_connector(c1, "connector0", 24, "C")
+    tie(c1, "connector0", 24, "C")
+    tie(c1, "connector1", 25, "C")
+    wire_hole_to_hole(25, "B", 25, BOT_GND, BLACK, "C1_to_ground")
+    wire_hole_to_free(24, "A", 0, 104, BLUE, "OUT_trigger_wiper")
 
-    # ---- steering filter: D10 -> R2 -> node -> C2 -> ground ----
-    wire_hole_to_hole(col_of["D10"], "B", 34, "B", GREEN, "D10_to_filter")
+    # ---- steering: D10 -> across the channel -> R2 -> C2 -> ground ----
+    wire_hole_to_hole(dig["D10"], "J", 32, "J", GREEN, "D10_run")
+    wire_hole_to_hole(32, "F", 32, "E", GREEN, "D10_cross_channel")
     r2 = sk.add_part(res, 0, 0, "R2", props={"resistance": "4.7kΩ"})
-    r2_target = hole_scene(34, "C")
-    r2["x"], r2["y"] = r2_target[0] - r1_off[0], r2_target[1] - r1_off[1]
-    tie(r2, "connector0", 34, "C")
-    tie(r2, "connector1", 38, "C")
-
+    place_by_connector(r2, "connector0", 32, "D")
+    tie(r2, "connector0", 32, "D")
+    tie(r2, "connector1", 36, "D")
     c2 = sk.add_part(cap, 0, 0, "C2", props={"capacitance": "1µF"})
-    c2_target = hole_scene(38, "D")
-    c2["x"], c2["y"] = c2_target[0] - c1_off[0], c2_target[1] - c1_off[1]
-    tie(c2, "connector0", 38, "D")
-    tie(c2, "connector1", 39, "D")
-    wire_hole_to_hole(39, "B", 39, BOT_GND, BLACK, "C2_to_ground")
-    wire_hole_to_free(38, "A", 0, 86, GREEN, "OUT_wheel_wiper")
+    place_by_connector(c2, "connector0", 36, "C")
+    tie(c2, "connector0", 36, "C")
+    tie(c2, "connector1", 37, "C")
+    wire_hole_to_hole(37, "B", 37, BOT_GND, BLACK, "C2_to_ground")
+    wire_hole_to_free(36, "A", 0, 104, GREEN, "OUT_wheel_wiper")
 
-    # ---- rail sense + ground out to the controller ----
-    wire_hole_to_free(col_of["A0"], "J", 0, -95, ORANGE, "IN_controller_rail_sense")
-    wire_hole_to_free(48, BOT_GND, 0, 60, BLACK, "OUT_controller_ground")
+    # ---- controller rail sense (A0) and ground, out to the controller ----
+    wire_hole_to_free(ana["A0"], "A", 0, 104, PURPLE, "IN_controller_rail_sense")
+    wire_hole_to_free(44, BOT_GND, 0, 74, BLACK, "OUT_controller_ground")
+
+    # ---- ultrasonics: HC-SR04 x2, above the board, on D2..D5 ----
+    # D2/D3 (front-left) sit at columns 12/11 and D4/D5 (front-right) at 10/9,
+    # so the modules are offset in that same order - left one to the right of
+    # the pair, right one to the left - and their wires never cross each other.
+    SR_LIFT = 168.0
+    sr_left = sk.add_part(sr04, 0, 0, "SR04_frontLeft")
+    place_by_connector(sr_left, "connector1", dig["D2"], "J")
+    sr_left["x"] += 150.0
+    sr_left["y"] -= SR_LIFT
+    wire_conn_to_hole(sr_left, "connector1", dig["D2"], "J", ORANGE, "SR04L_TRIG_D2")
+    wire_conn_to_hole(sr_left, "connector2", dig["D3"], "J", ORANGE, "SR04L_ECHO_D3")
+    wire_conn_to_hole(sr_left, "connector0", 22, TOP_POS, RED, "SR04L_VCC")
+    wire_conn_to_hole(sr_left, "connector3", 24, TOP_GND, BLACK, "SR04L_GND")
+
+    sr_right = sk.add_part(sr04, 0, 0, "SR04_frontRight")
+    place_by_connector(sr_right, "connector1", dig["D4"], "J")
+    sr_right["x"] -= 175.0
+    sr_right["y"] -= SR_LIFT
+    wire_conn_to_hole(sr_right, "connector1", dig["D4"], "J", ORANGE, "SR04R_TRIG_D4")
+    wire_conn_to_hole(sr_right, "connector2", dig["D5"], "J", ORANGE, "SR04R_ECHO_D5")
+    wire_conn_to_hole(sr_right, "connector0", 4, TOP_POS, RED, "SR04R_VCC")
+    wire_conn_to_hole(sr_right, "connector3", 3, TOP_GND, BLACK, "SR04R_GND")
+
+    # ---- 3.3V time-of-flight sensor, behind a bidirectional I2C level shifter --
+    # The Nano's I2C lines are 5V; the VL53L4CD module is 3.3V-only and not 5V
+    # tolerant, so the shifter sits between them. HV side faces the Nano.
+    shifter = sk.add_part(shift, 0, 0, "LevelShifter1")
+    shifter["x"] = hole_scene(48, "A")[0]
+    shifter["y"] = hole_scene(48, "A")[1] + 128.0
+    hv1 = shift.connector_by_name("HV1")
+    hv2 = shift.connector_by_name("HV2")
+    hv = shift.connector_by_name("HV")
+    lv1 = shift.connector_by_name("LV1")
+    lv2 = shift.connector_by_name("LV2")
+    lv = shift.connector_by_name("LV")
+    gnds = [c for c, n in shift.conn_name.items() if n == "GND"]
+    wire_conn_to_hole(shifter, hv1, ana["A4"], "C", BLUE, "A4_SDA_to_HV1")
+    wire_conn_to_hole(shifter, hv2, ana["A5"], "B", GREEN, "A5_SCL_to_HV2")
+    wire_conn_to_hole(shifter, hv, 46, BOT_POS, RED, "shifter_HV_5V")
+    wire_conn_to_hole(shifter, gnds[0], 46, BOT_GND, BLACK, "shifter_GND")
+    # 3V3 comes straight off the Nano, not from a rail: only this module uses it.
+    wire_conn_to_hole(shifter, lv, ana["3V3"], "A", ORANGE, "3V3_to_shifter_LV")
+
+    tof = sk.add_part(tof_part, 0, 0, "ToF_VL53L4CD")
+    tof["x"] = shifter["x"] + 150.0
+    tof["y"] = shifter["y"] + 6.0
+    tof_conns = sorted(
+        tof_part.conn_svgid,
+        key=lambda c: int("".join(ch for ch in c if ch.isdigit()) or 0),
+    )
+    if len(tof_conns) >= 4 and all(tof_part.offset(c) for c in tof_conns[:4]):
+        wire_conn_to_conn(tof, tof_conns[0], shifter, lv1, BLUE, "ToF_SDA_to_LV1")
+        wire_conn_to_conn(tof, tof_conns[1], shifter, lv2, GREEN, "ToF_SCL_to_LV2")
+        wire_conn_to_conn(tof, tof_conns[2], shifter, lv, ORANGE, "ToF_3V3_to_LV")
+        wire_conn_to_hole(tof, tof_conns[3], 52, BOT_GND, BLACK, "ToF_GND")
+    else:
+        print("  ! ToF stand-in part has no usable connector geometry; skipped")
+        sk.instances.remove(tof)
 
     # ---- notes ----
     sk.add_note(
@@ -621,13 +748,33 @@ def build(parts_dir: str, out_path: str) -> int:
         "Note_outputs",
     )
     sk.add_note(
-        BX + 390, BY + 250, 210, 76,
+        BX - 6, BY - 330, 300, 120,
         note_html(
-            "Distance sensors (HC-SR04 x2 on D2-D5, VL53L4CD on A4/A5\n"
-            "via a 3.3V level shifter) are documented separately in\n"
-            "docs/sensor-wiring.md and are not shown here."
+            "FORWARD-PERCEPTION ARRAY\n"
+            "\n"
+            "HC-SR04 ultrasonics, front-left and front-right corners:\n"
+            "  TRIG/ECHO -> D2/D3 (left), D4/D5 (right), 5V + GND rails.\n"
+            "Mount them on the corners angled ~15 deg outward, at bumper\n"
+            "height. Left/right is the CAR's perspective, not yours.\n"
+            "See docs/sensor-wiring.md for placement and aiming."
         ),
-        "Note_sensors",
+        "Note_ultrasonics",
+    )
+    sk.add_note(
+        BX + 300, BY + 250, 296, 128,
+        note_html(
+            "3.3V TIME-OF-FLIGHT SENSOR (centre beam)\n"
+            "\n"
+            "The 4-pin header stands in for the VL53L4CD / Modulino\n"
+            "Distance module - Fritzing has no part for it.\n"
+            "SDA/SCL cross a bidirectional I2C level shifter because the\n"
+            "Nano's I2C is 5V logic and the module is 3.3V-only and NOT\n"
+            "5V tolerant. HV side faces the Nano (A4/A5 + 5V), LV side\n"
+            "faces the module.\n"
+            "ORANGE 3V3 comes straight off the Nano's 3V3 pin, never a\n"
+            "5V rail, and drives only this module (~50mA budget)."
+        ),
+        "Note_tof",
     )
 
     xml = sk.to_xml(os.path.basename(out_path))
