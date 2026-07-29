@@ -188,6 +188,32 @@ the pads, desolder the pot, then land PA0/PW0/PB0 on those same three pads.
 Because the digipot divides the controller's own rail, the wiper voltage
 automatically matches what the controller chip expects.
 
+### Wired pots (red / black / white harness)
+
+Some controllers — Hosim's included — don't board-mount the pots: each pot
+hangs off a **3-wire harness**. That's the easy case: nothing to desolder from
+the main board. Cut (or unplug) the three wires at the pot and land the
+harness side on the digipot instead. The colors almost always follow the
+servo-style convention:
+
+| Wire color | Pot terminal | Digipot pin |
+|---|---|---|
+| Red | HIGH — controller supply rail | **PA0** (pin 7) |
+| Black | LOW — ground | **PB0** (pin 5) |
+| White | WIPER — the signal the controller chip reads | **PW0** (pin 6) |
+
+**Verify with a meter before cutting** — colors are a habit, not a spec.
+Controller on, pot still connected, black probe on battery negative, probe
+each wire at the pot's terminals: steady rail voltage = HIGH, steady 0V = LOW,
+sweeps as you move the control = WIPER. Getting the **wiper** right is the one
+that matters — a HIGH/LOW swap only mirrors the calibration constants (the
+calibration procedure absorbs that), but a misidentified wiper feeds the
+controller chip garbage. Cross-check: the wiper is usually the pot's
+physically middle terminal.
+
+Keep the removed pots intact and labeled — restoring the controller to stock
+is then just a resolder.
+
 ## Before you build — open the controller and confirm
 
 1. **Confirm the trigger and wheel are potentiometers** (3 terminals, wiper
