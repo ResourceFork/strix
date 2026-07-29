@@ -271,6 +271,29 @@ class Sketch:
         self.instances.append(inst)
         return inst
 
+    def add_wire_path(self, points, color, title):
+        """One logical wire drawn through bendpoints.
+
+        Fritzing has no multi-point wire: dragging a bendpoint into a wire
+        splits it into separate WireModuleID instances joined end to end. This
+        emits that chain and returns the first and last segment so the caller
+        can attach the real anchors.
+        """
+        segments = []
+        for i in range(len(points) - 1):
+            segments.append(
+                self.add_wire(
+                    points[i],
+                    points[i + 1],
+                    color,
+                    title if i == 0 else f"{title}_bend{i}",
+                )
+            )
+        for a, b in zip(segments, segments[1:]):
+            self.join(a, "connector1", b, "connector0",
+                      "breadboardWire", "breadboardWire")
+        return segments[0], segments[-1]
+
     def add_note(self, x, y, w, h, text, title):
         self.instances.append(
             {
@@ -573,14 +596,14 @@ def build(parts_dir: str, out_path: str) -> int:
             err = ((got[0] - want[0]) ** 2 + (got[1] - want[1]) ** 2) ** 0.5
             sk.checks.append((part_inst["title"], conn_id, f"pin{col}{row}", err))
 
-    def wire_hole_to_hole(c0, r0, c1, r1, color, title):
+    def wire_hole_to_hole(c0, r0, c1, r1, color, title, bends=()):
         p0, p1 = hole_scene(c0, r0), hole_scene(c1, r1)
-        w = sk.add_wire(p0, p1, color, title)
-        sk.join(w, "connector0", bb_inst, hole_cid(c0, r0),
+        first, last = sk.add_wire_path([p0, *bends, p1], color, title)
+        sk.join(first, "connector0", bb_inst, hole_cid(c0, r0),
                 "breadboardWire", "breadboardbreadboard")
-        sk.join(w, "connector1", bb_inst, hole_cid(c1, r1),
+        sk.join(last, "connector1", bb_inst, hole_cid(c1, r1),
                 "breadboardWire", "breadboardbreadboard")
-        return w
+        return first
 
     def wire_hole_to_free(c0, r0, dx, dy, color, title):
         p0 = hole_scene(c0, r0)
@@ -596,21 +619,21 @@ def build(parts_dir: str, out_path: str) -> int:
         target = hole_scene(col, row)
         inst["x"], inst["y"] = target[0] - off[0], target[1] - off[1]
 
-    def wire_conn_to_hole(inst, conn_id, col, row, color, title):
+    def wire_conn_to_hole(inst, conn_id, col, row, color, title, bends=()):
         p0 = sk.connector_scene(inst, conn_id)
         p1 = hole_scene(col, row)
-        w = sk.add_wire(p0, p1, color, title)
-        sk.join(w, "connector0", inst, conn_id, "breadboardWire", "breadboard")
-        sk.join(w, "connector1", bb_inst, hole_cid(col, row),
+        first, last = sk.add_wire_path([p0, *bends, p1], color, title)
+        sk.join(first, "connector0", inst, conn_id, "breadboardWire", "breadboard")
+        sk.join(last, "connector1", bb_inst, hole_cid(col, row),
                 "breadboardWire", "breadboardbreadboard")
-        return w
+        return first
 
-    def wire_conn_to_conn(a, ac, b, bc, color, title):
+    def wire_conn_to_conn(a, ac, b, bc, color, title, bends=()):
         p0, p1 = sk.connector_scene(a, ac), sk.connector_scene(b, bc)
-        w = sk.add_wire(p0, p1, color, title)
-        sk.join(w, "connector0", a, ac, "breadboardWire", "breadboard")
-        sk.join(w, "connector1", b, bc, "breadboardWire", "breadboard")
-        return w
+        first, last = sk.add_wire_path([p0, *bends, p1], color, title)
+        sk.join(first, "connector0", a, ac, "breadboardWire", "breadboard")
+        sk.join(last, "connector1", b, bc, "breadboardWire", "breadboard")
+        return first
 
     # ---- Arduino Nano, rotated 90 CW so the USB end faces the left edge ----
     nano_t = (0.0, 1.0, -1.0, 0.0, nano.scene_h, 0.0)
@@ -714,8 +737,18 @@ def build(parts_dir: str, out_path: str) -> int:
     wire_conn_to_hole(shifter, hv2, ana["A5"], "B", GREEN, "A5_SCL_to_HV2")
     wire_conn_to_hole(shifter, hv, 46, BOT_POS, RED, "shifter_HV_5V")
     wire_conn_to_hole(shifter, gnds[0], 46, BOT_GND, BLACK, "shifter_GND")
+
+    # Routing lanes under the board. Several runs down here would otherwise be
+    # drawn on top of each other; each takes its own lane 0.1in apart so every
+    # wire stays separately traceable. Lane depths follow a hand-routed pass.
+    LANE = [BY + bb.scene_h + 136.0 + 9.0 * i for i in range(3)]
+    # The three ToF wires all turn in the gap just past the shifter's right edge.
+    TURN_X = shifter["x"] + shift.scene_w + 1.5
+
     # 3V3 comes straight off the Nano, not from a rail: only this module uses it.
-    wire_conn_to_hole(shifter, lv, ana["3V3"], "A", ORANGE, "3V3_to_shifter_LV")
+    # One bend takes it around the shifter's left side instead of over the body.
+    wire_conn_to_hole(shifter, lv, ana["3V3"], "A", ORANGE, "3V3_to_shifter_LV",
+                      bends=[(shifter["x"] - 30.0, shifter["y"] - 2.0)])
 
     tof = sk.add_part(tof_part, 0, 0, "ToF_VL53L4CD")
     tof["x"] = shifter["x"] + 92.0
@@ -725,9 +758,14 @@ def build(parts_dir: str, out_path: str) -> int:
         key=lambda c: int("".join(ch for ch in c if ch.isdigit()) or 0),
     )
     if len(tof_conns) >= 4 and all(tof_part.offset(c) for c in tof_conns[:4]):
-        wire_conn_to_conn(tof, tof_conns[0], shifter, lv1, BLUE, "ToF_SDA_to_LV1")
-        wire_conn_to_conn(tof, tof_conns[1], shifter, lv2, GREEN, "ToF_SCL_to_LV2")
-        wire_conn_to_conn(tof, tof_conns[2], shifter, lv, ORANGE, "ToF_3V3_to_LV")
+        # These three run parallel between the same two parts, so they fan out
+        # into separate lanes rather than overlapping into one thick line.
+        wire_conn_to_conn(tof, tof_conns[0], shifter, lv1, BLUE, "ToF_SDA_to_LV1",
+                          bends=[(TURN_X, LANE[2])])
+        wire_conn_to_conn(tof, tof_conns[1], shifter, lv2, GREEN, "ToF_SCL_to_LV2",
+                          bends=[(TURN_X, LANE[1])])
+        wire_conn_to_conn(tof, tof_conns[2], shifter, lv, ORANGE, "ToF_3V3_to_LV",
+                          bends=[(TURN_X, LANE[0])])
         wire_conn_to_hole(tof, tof_conns[3], 52, BOT_GND, BLACK, "ToF_GND")
     else:
         print("  ! ToF stand-in part has no usable connector geometry; skipped")
@@ -754,11 +792,19 @@ def build(parts_dir: str, out_path: str) -> int:
     wire_conn_to_hole(trigger_conn, PIN_LOW, 31, BOT_GND, BLACK,
                       "OUT_controller_ground")
     # Commoned inside the controller - drawn so it is obvious why the wheel
-    # socket needs no rail or ground wire of its own.
-    wire_conn_to_conn(trigger_conn, PIN_HIGH, wheel_conn, PIN_HIGH, PURPLE,
-                      "controller_rail_common")
-    wire_conn_to_conn(trigger_conn, PIN_LOW, wheel_conn, PIN_LOW, BLACK,
-                      "controller_ground_common")
+    # socket needs no rail or ground wire of its own. Both jumpers span the same
+    # pair of parts, so each drops into its own lane and runs across there
+    # instead of the two being drawn on top of each other.
+    def staple(a, ac, b, bc, lane, color, title, inset=22.0):
+        ax = sk.connector_scene(a, ac)[0]
+        bx = sk.connector_scene(b, bc)[0]
+        wire_conn_to_conn(a, ac, b, bc, color, title,
+                          bends=[(ax + inset, lane), (bx - inset, lane)])
+
+    staple(trigger_conn, PIN_HIGH, wheel_conn, PIN_HIGH, LANE[1], PURPLE,
+           "controller_rail_common")
+    staple(trigger_conn, PIN_LOW, wheel_conn, PIN_LOW, LANE[0], BLACK,
+           "controller_ground_common")
 
     # ---- notes ----
     # Vertical zones, so nothing lands on the board or the modules:

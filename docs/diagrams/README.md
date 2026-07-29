@@ -44,6 +44,44 @@ picker reports them as custom and they look subtly off beside hand-drawn wires.
 | Yellow | `#fff800` | Ultrasonic TRIG, paired against blue ECHO so the two are never mixed up                   |
 | Purple | `#ab58a2` | Controller rail sense into A0                                                             |
 
+### Routing lanes and bendpoints
+
+Six runs are routed rather than drawn straight, because a straight line would put
+them on top of each other or across a part's body. Fritzing has no multi-point
+wire — dragging a bendpoint into a wire **splits it into separate
+`WireModuleID` instances joined end to end**. So the sketch's 34 logical runs are
+stored as 42 wire instances, and the generator emits that chain itself
+(`Sketch.add_wire_path`); the extra segments are named `<run>_bend1`, `_bend2`
+rather than left to Fritzing's auto `Wire5`, so a diff stays readable.
+
+Three **lanes** run below the board, 0.1" (9 scene units) apart:
+
+| Lane | Runs that use it                                             |
+| ---- | ------------------------------------------------------------ |
+| 0    | `ToF_3V3_to_LV` (orange), `controller_ground_common` (black) |
+| 1    | `ToF_SCL_to_LV2` (green), `controller_rail_common` (purple)  |
+| 2    | `ToF_SDA_to_LV1` (blue)                                      |
+
+Two runs sharing a lane is fine here — the ToF fan-out and the controller staples
+occupy different spans of x and never meet.
+
+Two patterns produce all six:
+
+- **Fan-out.** The three ToF wires all travel between the same pair of parts. Each
+  drops to its own lane, crosses in the gap just past the shifter's right edge
+  (`TURN_X`), and comes back up. Without this they merge into one thick
+  indistinguishable line. `3V3_to_shifter_LV` uses a single bend for a different
+  reason: to pass around the shifter's left side instead of over its body.
+- **Staple.** The two commoning jumpers between the controller sockets span the
+  same two parts. Each drops into a lane 22 units in from its pin, runs across,
+  and comes back up 22 units before the far pin — so they nest instead of
+  overlapping.
+
+Both were learned from a hand-routed pass in the app. To re-learn after editing by
+hand, compare the two archives run by run rather than eyeballing the render: fold
+each bend chain back into its parent run, then check colour, segment count, and
+bendpoint coordinates.
+
 ### Regenerating and validating it
 
 The file is generated, not hand-drawn, so it diffs and stays consistent with the
@@ -74,8 +112,9 @@ which `fritzing-app` source constants each rule came from.
 
 - Every `moduleIdRef` resolves in the **installed** app's library, and every
   `connectorId` exists on that part.
-- All 192 connection endpoints are reciprocal, with no dangling references, and
-  every `modelIndex` is unique.
+- All 228 connection endpoints are reciprocal, with no dangling references, and
+  every `modelIndex` is unique. That count includes the wire-to-wire joins that
+  implement bendpoints.
 - Every part pin declared as plugged into a hole lands on that hole's computed
   position — worst case **9 mils** (0.009"), which is the resistor's fixed
   0.409" lead span against a 0.4" four-column pitch.
