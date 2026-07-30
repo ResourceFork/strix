@@ -275,14 +275,21 @@ def seg_overlap(p1, p2, p3, p4, eps=1e-6, min_len=0.5):
     return min(a1, b1) - max(a0, b0) > min_len
 
 
-def polyline_crossings(a, b):
-    """How many times polyline a crosses or overlaps polyline b."""
-    n = 0
+def polyline_conflicts(a, b):
+    """(crossings, overlaps) between two polylines."""
+    x = o = 0
     for s0, s1 in zip(a, a[1:]):
         for t0, t1 in zip(b, b[1:]):
-            if seg_cross(s0, s1, t0, t1) or seg_overlap(s0, s1, t0, t1):
-                n += 1
-    return n
+            if seg_overlap(s0, s1, t0, t1):
+                o += 1
+            elif seg_cross(s0, s1, t0, t1):
+                x += 1
+    return x, o
+
+
+def polyline_crossings(a, b):
+    """How many times polyline a conflicts with polyline b, either way."""
+    return sum(polyline_conflicts(a, b))
 
 
 def dogleg(p0, p1, turn_x):
@@ -330,16 +337,20 @@ def solve_comb(endpoints, lanes, axis="x"):
         for slot, idx in enumerate(perm):
             p0, p1 = endpoints[idx]
             routes[idx] = bend(p0, p1, lanes[slot])
-        total = sum(
-            polyline_crossings(routes[i], routes[j])
-            for i in range(n)
-            for j in range(i + 1, n)
-        )
-        if best is None or total < best[0]:
-            best = (total, routes)
-        if total == 0:
+        cx = ov = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                a, b = polyline_conflicts(routes[i], routes[j])
+                cx += a
+                ov += b
+        # A crossing is still legible; an overlap hides one wire completely. So
+        # where a conflict is unavoidable, much prefer it to be a crossing.
+        score = cx + 10 * ov
+        if best is None or score < best[0]:
+            best = (score, cx, ov, routes)
+        if score == 0:
             break
-    return best
+    return best[1], best[2], best[3]
 
 
 # --------------------------------------------------------------------------
@@ -756,6 +767,31 @@ def build(parts_dir: str, out_path: str) -> int:
         sk.join(last, "connector1", b, bc, "breadboardWire", "breadboard")
         return first
 
+    def place_conn_at(inst, conn_id, pt):
+        """Shift a part so one of its connectors lands on an arbitrary point."""
+        off = qt_map(inst["transform"], inst["part"].offset(conn_id))
+        inst["x"], inst["y"] = pt[0] - off[0], pt[1] - off[1]
+
+    def fan(specs, lanes, axis, label):
+        """Route a bundle of wires out of one part into holes, orthogonally.
+
+        specs: [(inst, conn_id, col, row, colour, title)]. Picks a lane per wire
+        so the bundle does not cross or hide itself, then emits the wires. Any
+        residual is recorded so a forced conflict shows up in the build log
+        instead of only in the picture.
+        """
+        eps = [(sk.connector_scene(i, c), hole_scene(col, row))
+               for i, c, col, row, _, _ in specs]
+        cx, ov, routes = solve_comb(eps, lanes, axis=axis)
+        for (inst, cid, col, row, colour, title), route in zip(specs, routes):
+            wire_conn_to_hole(inst, cid, col, row, colour, title,
+                              bends=route[1:-1])
+        if cx or ov:
+            fan_residual.append((label, cx, ov))
+        return cx, ov
+
+    fan_residual = []
+
     # ---- Arduino Nano, rotated 90 CW so the USB end faces the left edge ----
     nano_t = (0.0, 1.0, -1.0, 0.0, nano.scene_h, 0.0)
     nano_x = hole_scene(nano_col(NANO_FIRST_COL, 0), NANO_UPPER_ROW)[0] - qt_map(
@@ -776,7 +812,9 @@ def build(parts_dir: str, out_path: str) -> int:
     # ---- power rails ----
     # Digital-side GND feeds the top ground rail; analog-side GND the bottom one.
     wire_hole_to_hole(dig["GND"], "I", dig["GND"], TOP_GND, BLACK, "GND_top")
-    wire_hole_to_hole(ana["GND"], "C", ana["GND"], BOT_GND, BLACK, "GND_bottom")
+    # Row A, not C: the A0 rail-sense run travels along row B, and dropping from
+    # row C to the rail would cut straight across it.
+    wire_hole_to_hole(ana["GND"], "A", ana["GND"], BOT_GND, BLACK, "GND_bottom")
     wire_hole_to_hole(ana["5V"], "B", ana["5V"], BOT_POS, RED, "5V_to_bottom_rail")
     wire_hole_to_hole(58, BOT_POS, 58, TOP_POS, RED, "5V_rail_bridge")
 
@@ -820,77 +858,143 @@ def build(parts_dir: str, out_path: str) -> int:
     # they sit side by side straddling that pin group. Front-right takes the
     # left slot (its pins D4/D5 are the lower columns) so no wire crosses the
     # other module. Offsets keep every run under about an inch.
-    SR_LIFT = 120.0
-    sr_right = sk.add_part(sr04, 0, 0, "SR04_frontRight")
-    place_by_connector(sr_right, "connector1", dig["D4"], "J")
-    sr_right["x"] -= 82.0
-    sr_right["y"] -= SR_LIFT
-    wire_conn_to_hole(sr_right, "connector1", dig["D4"], "J", YELLOW, "SR04R_TRIG_D4")
-    wire_conn_to_hole(sr_right, "connector2", dig["D5"], "J", BLUE, "SR04R_ECHO_D5")
-    wire_conn_to_hole(sr_right, "connector0", 3, TOP_POS, RED, "SR04R_VCC")
-    wire_conn_to_hole(sr_right, "connector3", 5, TOP_GND, BLACK, "SR04R_GND")
+    # An HC-SR04's pins are on its bottom edge, VCC TRIG ECHO GND left to right,
+    # so each module hangs above the board with its header facing it and every
+    # wire is a drop into a raceway. Stacked rather than side by side: the modules
+    # are 1.8in wide but their pins span only 0.4in, so placed side by side their
+    # bodies collide over the very pin group they both have to reach.
+    #
+    # One crossing per module is forced here and no routing removes it. TRIG sits
+    # to the LEFT of ECHO on the header, but TRIG lands on the higher-numbered
+    # Arduino pin, and higher pin numbers are further LEFT on this board - so
+    # TRIG's target column is to the right of ECHO's. Start order and end order
+    # are reversed, which is a transposition, and a transposition cannot be drawn
+    # in the plane without one wire crossing the other. Swapping TRIG and ECHO in
+    # the firmware would make both modules four straight drops with no bends.
+    def ultrasonic(title, pin_y, vcc_col, trig_col, echo_col, lanes):
+        m = sk.add_part(sr04, 0, 0, title)
+        place_conn_at(m, "connector0", hole_scene(vcc_col, "A"))
+        m["y"] = pin_y - qt_map(m["transform"], sr04.offset("connector0"))[1]
+        tag = "L" if "Left" in title else "R"
+        return fan(
+            [
+                (m, "connector0", snap(vcc_col, TOP_POS), TOP_POS, RED,
+                 f"SR04{tag}_VCC"),
+                # Both land in row J. Aiming one at row I would make it pass
+                # through row J on the way, where the D10 filter run travels,
+                # adding a crossing on top of the forced one.
+                (m, "connector1", trig_col, "J", YELLOW,
+                 f"SR04{tag}_TRIG_D{2 if tag == 'L' else 4}"),
+                (m, "connector2", echo_col, "J", BLUE,
+                 f"SR04{tag}_ECHO_D{3 if tag == 'L' else 5}"),
+                (m, "connector3", snap(vcc_col + 3, TOP_GND), TOP_GND, BLACK,
+                 f"SR04{tag}_GND"),
+            ],
+            lanes, "y", title,
+        )
 
-    sr_left = sk.add_part(sr04, 0, 0, "SR04_frontLeft")
-    place_by_connector(sr_left, "connector1", dig["D2"], "J")
-    sr_left["x"] += 61.0
-    sr_left["y"] -= SR_LIFT
-    wire_conn_to_hole(sr_left, "connector1", dig["D2"], "J", YELLOW, "SR04L_TRIG_D2")
-    wire_conn_to_hole(sr_left, "connector2", dig["D3"], "J", BLUE, "SR04L_ECHO_D3")
-    wire_conn_to_hole(sr_left, "connector0", 18, TOP_POS, RED, "SR04L_VCC")
-    wire_conn_to_hole(sr_left, "connector3", 19, TOP_GND, BLACK, "SR04L_GND")
+    # Front-left is the lower tier, sitting well right of the pins it reaches so
+    # its body clears the upper module's drop columns.
+    ultrasonic("SR04_frontLeft", 202.0, 18, dig["D2"], dig["D3"],
+               [211.0, 220.0, 193.0, 184.0])
+    # Lanes on both sides of the pin row, not just below. That is what lets the
+    # TRIG/ECHO transposition resolve: one wire steps up over the module before
+    # crossing back, so the two never have to swap in the same strip of space.
+    # With lanes only below, this fan cannot be untangled at all.
+    ultrasonic("SR04_frontRight", 112.0, 6, dig["D4"], dig["D5"],
+               [121.0, 130.0, 103.0, 94.0])
 
     # ---- 3.3V time-of-flight sensor, behind a bidirectional I2C level shifter --
     # The Nano's I2C lines are 5V; the VL53L4CD module is 3.3V-only and not 5V
     # tolerant, so the shifter sits between them. HV side faces the Nano.
     # Sit the shifter directly below the Nano's A4/A5 pins so its HV wires are
     # short verticals rather than diagonals across the whole board.
-    shifter = sk.add_part(shift, 0, 0, "LevelShifter1")
+    # The shifter's own pin rows already face the right way with no rotation: HV
+    # along its top edge, LV along its bottom. Sat below the board, that puts the
+    # 5V side toward the Nano and the 3.3V side toward the sensor, so nothing has
+    # to double back over the module.
+    #
+    # Landing HV1/HV2 in row A rather than B or C matters: the A0 rail-sense run
+    # travels along row B from column 5 to 21, and row B sits *above* row A as
+    # seen from underneath, so coming up into row A stops short of it. Aiming at
+    # row B or C would cross it.
     hv1 = shift.connector_by_name("HV1")
-    shifter["x"] = hole_scene(ana["A4"], "A")[0] - shift.offset(hv1)[0]
-    shifter["y"] = BY + bb.scene_h + 70.0
     hv2 = shift.connector_by_name("HV2")
     hv = shift.connector_by_name("HV")
     lv1 = shift.connector_by_name("LV1")
     lv2 = shift.connector_by_name("LV2")
     lv = shift.connector_by_name("LV")
-    gnds = [c for c, n in shift.conn_name.items() if n == "GND"]
-    wire_conn_to_hole(shifter, hv1, ana["A4"], "C", BLUE, "A4_SDA_to_HV1")
-    wire_conn_to_hole(shifter, hv2, ana["A5"], "B", GREEN, "A5_SCL_to_HV2")
-    wire_conn_to_hole(shifter, hv, 46, BOT_POS, RED, "shifter_HV_5V")
-    wire_conn_to_hole(shifter, gnds[0], 46, BOT_GND, BLACK, "shifter_GND")
-
-    # Routing lanes under the board. Several runs down here would otherwise be
-    # drawn on top of each other; each takes its own lane 0.1in apart so every
-    # wire stays separately traceable. Lane depths follow a hand-routed pass.
-    LANE = [BY + bb.scene_h + 136.0 + 9.0 * i for i in range(3)]
-    # The three ToF wires all turn in the gap just past the shifter's right edge.
-    TURN_X = shifter["x"] + shift.scene_w + 1.5
+    hv_gnd = [c for c, n in shift.conn_name.items()
+              if n == "GND" and shift.offset(c)[1] < shift.scene_h / 2][0]
+    shifter = sk.add_part(shift, 0, 0, "LevelShifter1")
+    SHIFT_HV_Y = BY + bb.scene_h + 45.0
+    place_conn_at(shifter, hv1, (hole_scene(ana["A4"], "A")[0], SHIFT_HV_Y))
+    # HV pins land under columns A4..A4+5, so all four of these are straight
+    # vertical runs with no bend at all.
+    hv_col = {c: ana["A4"] + i for i, c in
+              enumerate((hv1, hv2, hv, hv_gnd))}
+    fan(
+        [
+            (shifter, hv1, ana["A4"], "A", BLUE, "A4_SDA_to_HV1"),
+            (shifter, hv2, ana["A5"], "A", GREEN, "A5_SCL_to_HV2"),
+            (shifter, hv, snap(hv_col[hv], BOT_POS), BOT_POS, RED,
+             "shifter_HV_5V"),
+            (shifter, hv_gnd, snap(hv_col[hv_gnd], BOT_GND), BOT_GND, BLACK,
+             "shifter_GND"),
+        ],
+        [SHIFT_HV_Y - 9.0 * k for k in range(1, 5)], "y", "level shifter HV side",
+    )
 
     # 3V3 comes straight off the Nano, not from a rail: only this module uses it.
-    # One bend takes it around the shifter's left side instead of over the body.
-    wire_conn_to_hole(shifter, lv, ana["3V3"], "A", ORANGE, "3V3_to_shifter_LV",
-                      bends=[(shifter["x"] - 30.0, shifter["y"] - 2.0)])
+    # It leaves the LV row, clears the module's left edge, and climbs to the 3V3
+    # column - the one wire here that has to get from the far side of the shifter
+    # back to the board.
+    # It leaves sideways along the LV row rather than dropping, because the wire
+    # to the ToF leaves the same pin downward - two wires off one pin in the same
+    # direction means one is drawn invisibly under the other.
+    wire_conn_to_hole(
+        shifter, lv, ana["3V3"], "A", ORANGE, "3V3_to_shifter_LV",
+        bends=[(hole_scene(ana["3V3"], "A")[0],
+                sk.connector_scene(shifter, lv)[1])],
+    )
 
     tof = sk.add_part(tof_part, 0, 0, "ToF_VL53L4CD")
-    tof["x"] = shifter["x"] + 92.0
-    tof["y"] = shifter["y"] + 10.0
     tof_conns = sorted(
         tof_part.conn_svgid,
         key=lambda c: int("".join(ch for ch in c if ch.isdigit()) or 0),
     )
     if len(tof_conns) >= 4 and all(tof_part.offset(c) for c in tof_conns[:4]):
-        # These three run parallel between the same two parts, so they fan out
-        # into separate lanes rather than overlapping into one thick line.
-        wire_conn_to_conn(tof, tof_conns[0], shifter, lv1, BLUE, "ToF_SDA_to_LV1",
-                          bends=[(TURN_X, LANE[2])])
-        wire_conn_to_conn(tof, tof_conns[1], shifter, lv2, GREEN, "ToF_SCL_to_LV2",
-                          bends=[(TURN_X, LANE[1])])
-        wire_conn_to_conn(tof, tof_conns[2], shifter, lv, ORANGE, "ToF_3V3_to_LV",
-                          bends=[(TURN_X, LANE[0])])
-        wire_conn_to_hole(tof, tof_conns[3], 52, BOT_GND, BLACK, "ToF_GND")
+        place_conn_at(tof, tof_conns[0],
+                      (sk.connector_scene(shifter, lv1)[0], SHIFT_HV_Y + 108.0))
+        # The ToF stand-in header is 0.0787in pitch against the shifter's 0.1in,
+        # so these three cannot all line up. Each gets its own horizontal lane in
+        # the gap and steps across.
+        lv_pairs = [(tof_conns[0], lv1, BLUE, "ToF_SDA_to_LV1"),
+                    (tof_conns[1], lv2, GREEN, "ToF_SCL_to_LV2"),
+                    (tof_conns[2], lv, ORANGE, "ToF_3V3_to_LV")]
+        eps = [(sk.connector_scene(tof, tc), sk.connector_scene(shifter, sc))
+               for tc, sc, _, _ in lv_pairs]
+        cx, ov, routes = solve_comb(
+            eps, [SHIFT_HV_Y + 63.0 + 9.0 * k for k in range(4)], axis="y")
+        for (tc, sc, colour, title), route in zip(lv_pairs, routes):
+            wire_conn_to_conn(tof, tc, shifter, sc, colour, title,
+                              bends=route[1:-1])
+        if cx or ov:
+            fan_residual.append(("ToF to shifter LV side", cx, ov))
+        # Ground goes down and out around the module's right edge rather than
+        # straight up through its body.
+        gnd_col = snap(hv_col[hv_gnd] + 4, BOT_GND)
+        wire_conn_to_hole(
+            tof, tof_conns[3], gnd_col, BOT_GND, BLACK, "ToF_GND",
+            bends=[(sk.connector_scene(tof, tof_conns[3])[0], SHIFT_HV_Y + 126.0),
+                   (hole_scene(gnd_col, BOT_GND)[0], SHIFT_HV_Y + 126.0)],
+        )
     else:
         print("  ! ToF stand-in part has no usable connector geometry; skipped")
         sk.instances.remove(tof)
+
+    # Lanes below everything, for the two commoning jumpers further down.
+    LANE = [SHIFT_HV_Y + 144.0 + 9.0 * i for i in range(3)]
 
     # ---- the handheld controller's two pot connectors -----------------------
     # These are the sockets the mechanical pots unplug from. Pin 2 (centre) is
@@ -903,35 +1007,51 @@ def build(parts_dir: str, out_path: str) -> int:
     trigger_conn = sk.add_part(pot_conn, BX + 240.0, CONN_Y, "TriggerPotConnector")
     wheel_conn = sk.add_part(pot_conn, BX + 360.0, CONN_Y, "WheelPotConnector")
 
-    # Filter outputs into each socket's wiper pin.
-    wire_conn_to_hole(trigger_conn, PIN_WIPER, 24, "A", BLUE, "OUT_trigger_wiper")
-    wire_conn_to_hole(wheel_conn, PIN_WIPER, 36, "A", GREEN, "OUT_wheel_wiper")
-    # Rail sense in, ground out. Source columns are ordered left-to-right to
-    # match the pin order so none of these three wires cross each other.
-    wire_conn_to_hole(trigger_conn, PIN_HIGH, 21, "A", PURPLE,
-                      "IN_controller_rail_sense")
-    wire_conn_to_hole(trigger_conn, PIN_LOW, 31, BOT_GND, BLACK,
-                      "OUT_controller_ground")
+    # Three wires leave the trigger socket and one leaves the wheel socket, all
+    # climbing to the board through lanes in the gap below it.
+    fan(
+        [
+            (trigger_conn, PIN_HIGH, 21, "A", PURPLE, "IN_controller_rail_sense"),
+            (trigger_conn, PIN_WIPER, 24, "A", BLUE, "OUT_trigger_wiper"),
+            (trigger_conn, PIN_LOW, 31, BOT_GND, BLACK, "OUT_controller_ground"),
+        ],
+        [CONN_Y - 9.0 * k for k in range(1, 6)], "y", "trigger socket",
+    )
+    fan(
+        [(wheel_conn, PIN_WIPER, 36, "A", GREEN, "OUT_wheel_wiper")],
+        [CONN_Y - 18.0], "y", "wheel socket",
+    )
     # Commoned inside the controller - drawn so it is obvious why the wheel
     # socket needs no rail or ground wire of its own. Both jumpers span the same
     # pair of parts, so each drops into its own lane and runs across there
     # instead of the two being drawn on top of each other.
-    def staple(a, ac, b, bc, lane, color, title, inset=22.0):
+    # Straight down, across its lane, straight back up.
+    #
+    # These two cross once and it cannot be helped. Both sockets carry their pins
+    # in the same order, so the pairs interleave: pin1(trigger) < pin3(trigger) <
+    # pin1(wheel) < pin3(wheel), and the rail jumper joins the pin1s while ground
+    # joins the pin3s. Interleaved chords drawn on the same side of a line always
+    # cross - swapping lanes just moves which wire is on top, and routing one
+    # around the outside makes it cross the other's leg instead. Mirroring one
+    # socket would nest them, but a socket's pin order is not ours to invent.
+    def staple(a, ac, b, bc, lane, color, title):
         ax = sk.connector_scene(a, ac)[0]
         bx = sk.connector_scene(b, bc)[0]
         wire_conn_to_conn(a, ac, b, bc, color, title,
-                          bends=[(ax + inset, lane), (bx - inset, lane)])
+                          bends=[(ax, lane), (bx, lane)])
 
-    staple(trigger_conn, PIN_HIGH, wheel_conn, PIN_HIGH, LANE[1], PURPLE,
+    staple(trigger_conn, PIN_HIGH, wheel_conn, PIN_HIGH, LANE[0], PURPLE,
            "controller_rail_common")
-    staple(trigger_conn, PIN_LOW, wheel_conn, PIN_LOW, LANE[0], BLACK,
+    staple(trigger_conn, PIN_LOW, wheel_conn, PIN_LOW, LANE[1], BLACK,
            "controller_ground_common")
 
     # ---- notes ----
     # Vertical zones, so nothing lands on the board or the modules:
     #   above:  notes | ultrasonic modules | board
     #   below:  board | shifter + ToF and the controller stubs | notes
-    NOTE_ABOVE_Y = BY - SR_LIFT - sr04.scene_h - 130.0
+    # Clear of the upper ultrasonic tier, whose body top is its pin row less the
+    # module height.
+    NOTE_ABOVE_Y = 112.0 - sr04.scene_h - 130.0
     NOTE_BELOW_Y = BY + bb.scene_h + 160.0
     sk.add_note(
         BX - 6, NOTE_ABOVE_Y, 320, 128,
@@ -1023,6 +1143,13 @@ def build(parts_dir: str, out_path: str) -> int:
     for title, conn, pin, err in sk.checks:
         if err > 1.0:
             print(f"    ! {title}.{conn} -> {pin}: {err:.3f} units")
+    if fan_residual:
+        print("  fans the router could not fully untangle:")
+        for label, cx, ov in fan_residual:
+            note = f"{cx} crossing(s)" + (f", {ov} hidden" if ov else "")
+            print(f"    - {label}: {note}")
+    else:
+        print("  every routed fan is provably clean")
     return 0 if worst < 2.0 else 1
 
 

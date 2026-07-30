@@ -44,43 +44,81 @@ picker reports them as custom and they look subtly off beside hand-drawn wires.
 | Yellow | `#fff800` | Ultrasonic TRIG, paired against blue ECHO so the two are never mixed up                   |
 | Purple | `#ab58a2` | Controller rail sense into A0                                                             |
 
-### Routing lanes and bendpoints
+### Routing: raceways, not diagonals
 
-Six runs are routed rather than drawn straight, because a straight line would put
-them on top of each other or across a part's body. Fritzing has no multi-point
-wire — dragging a bendpoint into a wire **splits it into separate
-`WireModuleID` instances joined end to end**. So the sketch's 34 logical runs are
-stored as 42 wire instances, and the generator emits that chain itself
-(`Sketch.add_wire_path`); the extra segments are named `<run>_bend1`, `_bend2`
-rather than left to Fritzing's auto `Wire5`, so a diff stays readable.
+Every wire is drawn like a PCB trace — horizontal and vertical only, turning in
+lanes on the same 0.1" lattice as the holes. Two route shapes cover almost
+everything:
 
-Three **lanes** run below the board, 0.1" (9 scene units) apart:
+- **Drop, lane, drop** for pins in a row wiring above or below the board.
+- **Out, lane, in** for pins in a column wiring off to the side.
 
-| Lane | Runs that use it                                             |
-| ---- | ------------------------------------------------------------ |
-| 0    | `ToF_3V3_to_LV` (orange), `controller_ground_common` (black) |
-| 1    | `ToF_SCL_to_LV2` (green), `controller_rail_common` (purple)  |
-| 2    | `ToF_SDA_to_LV1` (blue)                                      |
+Where a pin already lines up with its target the route collapses to one straight
+run, which is the tidiest outcome and worth keeping. The level shifter's whole HV
+side lands that way: sat below the board with no rotation, its HV row already
+faces the Nano, so **SDA, SCL, 5V and ground are four straight verticals with no
+bend at all.**
 
-Two runs sharing a lane is fine here — the ToF fan-out and the controller staples
-occupy different spans of x and never meet.
+Which wire gets which lane is not obvious, so the generator doesn't guess — it
+searches lane orderings and keeps one that provably doesn't cross or overlap
+itself (`solve_comb`). The intuitive rule, that wires heading further should turn
+later, is wrong whenever a connector puts power on its outer pins and signal on
+its inner ones, because then the pin order fights the destination order. That's
+every HC-SR04.
 
-Two patterns produce all six:
+Two findings worth keeping, both learned the hard way:
 
-- **Fan-out.** The three ToF wires all travel between the same pair of parts. Each
-  drops to its own lane, crosses in the gap just past the shifter's right edge
-  (`TURN_X`), and comes back up. Without this they merge into one thick
-  indistinguishable line. `3V3_to_shifter_LV` uses a single bend for a different
-  reason: to pass around the shifter's left side instead of over its body.
-- **Staple.** The two commoning jumpers between the controller sockets span the
-  same two parts. Each drops into a lane 22 units in from its pin, runs across,
-  and comes back up 22 units before the far pin — so they nest instead of
-  overlapping.
+- **Offer lanes on _both_ sides of a pin row.** An HC-SR04's TRIG sits left of
+  ECHO, but TRIG lands on the higher-numbered Arduino pin, whose column is
+  further _right_. Reversed start and end order looks like it must cross — and it
+  does, if every lane is on one side. Given a lane above the pin row as well, one
+  wire steps up over the module and back down, and the fan resolves cleanly. With
+  lanes only below, this fan is unsolvable.
+- **Overlaps are invisible to a crossing test.** Two collinear wires have a zero
+  determinant, so an intersection check calls them fine while one is drawn
+  underneath the other. `check-fritzing-crossings.py` scores both, and the router
+  treats a hidden wire as ten times worse than a crossing, since a crossing is at
+  least legible.
 
-Both were learned from a hand-routed pass in the app. To re-learn after editing by
-hand, compare the two archives run by run rather than eyeballing the render: fold
-each bend chain back into its parent run, then check colour, segment count, and
-bendpoint coordinates.
+### Known crossings
+
+Two, both genuine, both explained rather than tidied away:
+
+| Crossing                                              | Why                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `D10_run` × `GND_top`                                 | The Nano's digital ground pin sits at column 13, between D10 at column 4 and the filter it feeds at column 32. Any run between them crosses that riser.                                                                                                                                     |
+| `controller_ground_common` × `controller_rail_common` | Both sockets carry their pins in the same order, so the pairs interleave — pin 1 (trigger), pin 3 (trigger), pin 1 (wheel), pin 3 (wheel). Interleaved chords on the same side of a line always cross. Mirroring one socket would nest them, but a socket's pin order isn't ours to invent. |
+
+`python3 scripts/check-fritzing-crossings.py` reports the count, so a future
+layout change can't quietly add more. The generator also prints any fan it
+couldn't fully untangle.
+
+<details>
+<summary>Earlier approach, and why it was wrong</summary>
+
+An earlier revision routed the parallel runs into three horizontal lanes below
+the board and called that solved. It wasn't: the lanes stopped the wires being
+drawn _on top of_ each other, but they were ordered so the wires still swapped
+over each other en route. Separating and not-crossing are different properties
+and only the first was checked. That revision shipped 28 crossings, including the
+three-wire ToF fan crossing itself and the two commoning jumpers crossing.
+
+</details>
+
+### Historical: bendpoints in the file format
+
+Worth knowing before you read the XML or diff two revisions: **Fritzing has no
+multi-point wire.** Dragging a bendpoint into a wire splits it into separate
+`WireModuleID` instances joined end to end, so a route with two bends is stored as
+three wire instances. The sketch's **34 logical runs are stored as 73 wire
+instances**, and `Sketch.add_wire_path` emits those chains itself. Extra segments
+are named `<run>_bend1`, `_bend2` rather than left to Fritzing's auto `Wire5`
+naming, so a diff stays readable.
+
+This also means **moving a part in the app does not re-route its wires** — Fritzing
+rubber-bands the existing bendpoints along, so a fan that was laid out in parallel
+lanes comes out smeared and often tangled. After hand-editing, regenerate rather
+than trusting what the drag produced, and check the crossing count.
 
 ### Regenerating and validating it
 
@@ -112,9 +150,10 @@ which `fritzing-app` source constants each rule came from.
 
 - Every `moduleIdRef` resolves in the **installed** app's library, and every
   `connectorId` exists on that part.
-- All 228 connection endpoints are reciprocal, with no dangling references, and
+- All 290 connection endpoints are reciprocal, with no dangling references, and
   every `modelIndex` is unique. That count includes the wire-to-wire joins that
   implement bendpoints.
+- Wire crossings are counted, not eyeballed: 2, both explained above.
 - Every part pin declared as plugged into a hole lands on that hole's computed
   position — worst case **9 mils** (0.009"), which is the resistor's fixed
   0.409" lead span against a 0.4" four-column pitch.
