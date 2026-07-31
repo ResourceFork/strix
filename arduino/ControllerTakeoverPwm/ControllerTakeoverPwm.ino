@@ -154,6 +154,13 @@ const int THR_MAX = 480;     // forward, clamped for bring-up
 //
 // Wheel: window ~52R-4.67k of a 5.2k track, rest ~2.7k (white-referenced)
 //   => red-referenced fractions ~0.10 / 0.48 / 0.99.
+//
+// All three CONFIRMED on the car, wheels up: 492 sits visibly straight, 103
+// reaches full left lock, 1013 reaches full right, and both ends return to
+// centre on disarm. So the complement arithmetic and the pot measurements were
+// right all along - throttle's 82-count miss was the ESC's own neutral point and
+// the FR.TRIM knob, a second calibration in series that steering simply does not
+// have. Steering needed no empirical correction at all.
 const int STR_LEFT = 103;    // full left lock
 const int STR_CENTER = 492;  // wheels straight
 const int STR_RIGHT = 1013;  // full right lock
@@ -175,9 +182,17 @@ const byte RAIL_OVERSAMPLE = 32;
 // lets rail noise straight onto the throttle. Boot is unaffected because
 // sampleRail(true) takes the reading directly rather than easing into it.
 const int RAIL_SMOOTH = 64;
-// Minimum duty change (out of 1024) worth writing to the timer. Suppresses
-// dither from whatever noise survives filtering.
-const int DUTY_HYSTERESIS = 3;
+// Minimum duty change (out of 1024) worth writing to the timer.
+//
+// Set to 1, i.e. effectively off. It was 3, on the theory that suppressing small
+// writes would stop the output dithering. Measured against the hardware that was
+// wrong twice over: with the rail properly filtered the duty does not move at
+// all (18 consecutive samples identical), so there was nothing to suppress - and
+// a threshold converts slow drift into occasional discrete JUMPS, which a
+// position servo dislikes more than smooth drift. Left at 1 so the gate cannot
+// introduce steps, and kept as a named constant because the mistake is worth
+// leaving written down.
+const int DUTY_HYSTERESIS = 1;
 const int RAIL_MIN_COUNTS = 500;
 const int RAIL_DEFAULT_COUNTS = 920; // ~4.5V rail on a 5.0V Nano, until sensed
 int railCounts = RAIL_DEFAULT_COUNTS;
@@ -357,13 +372,28 @@ int gateThrottleCal(int cal) {
   return cal;
 }
 
-// A fresh target lands exactly, bypassing the hysteresis gate. Hysteresis exists
-// to stop rail noise dithering the pin, not to round off what the operator asked
-// for - a small deliberate throttle change must not be swallowed.
+// A CHANGED target lands exactly; an unchanged one goes through the hysteresis
+// gate instead.
+//
+// That distinction matters more than it looks. Hysteresis exists to stop rail
+// noise dithering the pin, but it must never round off a deliberate command, so
+// the first version forced an exact write on every call. The keepalive re-sends
+// the same value six or seven times a second, and each of those forced a fresh
+// duty from whatever railCounts had drifted to - so the pin was re-dithered
+// constantly despite the hysteresis. The ESC's deadband hid it; the steering
+// servo, which is a position device with far more gain, sat there hunting.
+//
+// So: a genuinely new value bypasses the gate, a repeat does not.
 void setTargets(int throttleCal, int steeringCal) {
-  curThrottleCal = gateThrottleCal(throttleCal);
+  int gated = gateThrottleCal(throttleCal);
+  bool changed = (gated != curThrottleCal) || (steeringCal != curSteeringCal);
+  curThrottleCal = gated;
   curSteeringCal = steeringCal;
-  applyOutputsNow();
+  if (changed) {
+    applyOutputsNow();
+  } else {
+    applyOutputs();
+  }
 }
 
 // ---------------------------------------------------------------------------
