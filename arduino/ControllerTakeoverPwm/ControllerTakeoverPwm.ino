@@ -24,6 +24,8 @@
     ?\n              -- ping, replies "OK:<armed>:<t1>:<t2>:<t3>\n"
     D?\n             -- distances, replies "D:<center>,<frontLeft>,<frontRight>\n"
                         each value in mm, -1 = no reading
+    R?\n             -- rail sense, replies "R:<inUse>:<rawA0>:<valid>\n"
+                        rawA0 low and drifting => A0 is not connected
 
   Failsafe: if no command arrives for FAILSAFE_MS, both outputs park at
   neutral (trigger released, wheel centered).
@@ -111,22 +113,34 @@ unsigned long lastSensorMs = 0;
 
 // ---- CALIBRATION -----------------------------------------------------------
 // RAIL FRACTIONS in 1/1023 units (0 = controller GND, 1023 = controller rail)
-// that make the *controller* output each extreme. These are PLACEHOLDERS
-// derived from the bench-measured Hosim pots ASSUMING the white wire is the
-// LOW end -- verify with the powered socket test and tune with the wheels off
-// the ground. Worksheet: docs/controller-takeover-calibration.md
+// that make the *controller* output each extreme. Tune with the wheels off the
+// ground. Worksheet: docs/controller-takeover-calibration.md
 //
-// Trigger measured: window 1.99k-4.4k of a 5.2k track, rest 2.77k
-//   => fractions ~0.38 / 0.53 / 0.85 of the rail.
-const int THR_MIN = 391;     // full reverse
-const int THR_NEUTRAL = 545; // stopped -- tune this FIRST so the car can't creep
-const int THR_MAX = 866;     // full forward
-// Wheel measured: window ~52R-4.67k of a 5.2k track, rest ~2.7k
-//   => fractions ~0.01 / 0.52 / 0.90. If left/right come out mirrored,
-//   swap STR_LEFT and STR_RIGHT rather than rewiring.
-const int STR_LEFT = 920;   // full left lock
-const int STR_CENTER = 531; // wheels straight
-const int STR_RIGHT = 10;   // full right lock
+// Wire roles CONFIRMED by the powered socket test on this build:
+//   white = HIGH (rail, measured 3.2V)   black = WIPER   red = LOW (ground)
+// An earlier revision assumed white was the LOW end and had all six of these
+// inverted, which made every command land outside the pot's real travel.
+//
+// Because ground is the RED end, each fraction is the wiper-to-red resistance
+// over the track, i.e. the complement of the white-referenced numbers that were
+// bench-measured. Mirroring a pot is 1023 - f, NOT a swap of the two endpoints:
+// neither window is centred, so swapping leaves neutral wrong by ~50 counts and
+// the car creeps.
+//
+// Trigger: window 1.99k-4.4k of a 5.2k track, rest 2.77k (white-referenced)
+//   => red-referenced fractions ~0.62 / 0.47 / 0.15 of the rail.
+const int THR_MIN = 632;     // full reverse
+const int THR_NEUTRAL = 478; // stopped -- tune this FIRST so the car can't creep
+const int THR_MAX = 157;     // full forward
+// Note MIN > MAX now, and LEFT < RIGHT below. That is correct and deliberate:
+// map() does not clamp, so it interpolates inverted endpoints fine. Do not
+// "tidy" these back into ascending order.
+//
+// Wheel: window ~52R-4.67k of a 5.2k track, rest ~2.7k (white-referenced)
+//   => red-referenced fractions ~0.10 / 0.48 / 0.99.
+const int STR_LEFT = 103;    // full left lock
+const int STR_CENTER = 492;  // wheels straight
+const int STR_RIGHT = 1013;  // full right lock
 // ----------------------------------------------------------------------------
 
 const unsigned long FAILSAFE_MS = 500;
@@ -140,6 +154,13 @@ const int RAIL_MIN_COUNTS = 500;
 const int RAIL_DEFAULT_COUNTS = 920; // ~4.5V rail on a 5.0V Nano, until sensed
 int railCounts = RAIL_DEFAULT_COUNTS;
 unsigned long lastRailMs = 0;
+// Last raw A0 sample and whether it passed the sanity floor, reported by "R?".
+// Without this the rail sense is invisible: an unconnected A0 floats at a low,
+// drifting voltage, gets rejected, and the firmware silently runs on
+// RAIL_DEFAULT_COUNTS forever with nothing to show anything is wrong. That cost
+// a long bench session once.
+int lastRailRaw = -1;
+bool railValid = false;
 
 bool armed = false;
 int lastThrottle[3] = {0, 0, 0};
@@ -201,6 +222,8 @@ void sampleRail(bool force) {
 
   analogRead(RAIL_SENSE_PIN); // throwaway: settle the ADC mux
   int reading = analogRead(RAIL_SENSE_PIN);
+  lastRailRaw = reading;
+  railValid = (reading >= RAIL_MIN_COUNTS);
   if (reading >= RAIL_MIN_COUNTS) {
     // Exponential average smooths ADC noise without a sag-tracking lag.
     railCounts = force ? reading : (railCounts * 3 + reading) / 4;
@@ -307,6 +330,18 @@ void handleCommand(const String& line) {
     Serial.print(lastThrottle[1]);
     Serial.print(":");
     Serial.println(lastThrottle[2]);
+    return;
+  }
+
+  if (line == "R?") {
+    // R:<railCountsInUse>:<lastRawA0>:<1 if raw passed the sanity floor>
+    // raw well below RAIL_MIN_COUNTS and drifting means A0 is not connected.
+    Serial.print("R:");
+    Serial.print(railCounts);
+    Serial.print(":");
+    Serial.print(lastRailRaw);
+    Serial.print(":");
+    Serial.println(railValid ? "1" : "0");
     return;
   }
 

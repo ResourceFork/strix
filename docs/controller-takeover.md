@@ -389,8 +389,11 @@ calibrate once with the **wheels off the ground** and the car powered and paired
    `T2:100` for full left/right lock (`STR_LEFT` / `STR_RIGHT`).
 5. Re-flash with the tuned constants.
 
-> 💡 If a direction comes out reversed, **swap the two constants** (MIN↔MAX or
-> LEFT↔RIGHT) rather than rewiring.
+> 💡 If a direction comes out reversed, you have HIGH and LOW the wrong way
+> round. Fix it in software rather than rewiring — but **replace every constant
+> with `1023 − value`**, don't just swap MIN↔MAX. A swap leaves neutral wrong,
+> because the travel windows aren't centred. See
+> [what a HIGH/LOW mix-up actually costs](pot-identification.md#why-this-matters).
 
 ---
 
@@ -424,17 +427,18 @@ the ground and start slow.
 
 ## Troubleshooting
 
-| Symptom                                                     | Likely cause / fix                                                                                                                                        |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Controller no longer drives the car at all                  | Not bound, or a wiper line is miswired. Re-verify manual driving and re-run the bind procedure.                                                           |
-| Car creeps at `T1:0`                                        | `THR_NEUTRAL` is off. Nudge it until dead stopped.                                                                                                        |
-| Throttle or steering reversed                               | Swap `..._MIN`/`..._MAX` (or `LEFT`/`RIGHT`) in the constants.                                                                                            |
-| Only full-on or full-off, no in-between                     | The controls may be switches, not pots — this approach can't add proportionality. Consider swapping the ESC ([Path A](esc-wiring.md)).                    |
-| Erratic or jumpy behavior                                   | Missing [common ground](glossary.md#common-ground) between Nano and controller.                                                                           |
-| **(B)** Neutral drifts as the controller's batteries drain  | The A0 rail-sense wire isn't really on the controller rail, so the [ratiometric scaling](#why-the-rail-sense-wire-matters) is running on a stale default. |
-| **(B)** Throttle surges or steps instead of moving smoothly | Filter capacitor missing, disconnected, or far too small — raw PWM is reaching the controller chip. Use ≥1 µF with the series R in place.                 |
-| **(A)** Digipot runs hot or dies                            | Over-voltage: the controller rail exceeds the chip's max. See the [rating warning](#variant-a-digipot-pin-by-pin-mcp41010).                               |
-| Car keeps moving after the app disconnects                  | The [failsafe](serial-protocol.md#the-500-ms-failsafe) path isn't reaching neutral — verify the 500 ms timeout in firmware.                               |
+| Symptom                                                     | Likely cause / fix                                                                                                                                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Controller no longer drives the car at all                  | Not bound, or a wiper line is miswired. Re-verify manual driving and re-run the bind procedure.                                                                           |
+| Car creeps at `T1:0`                                        | `THR_NEUTRAL` is off. Nudge it until dead stopped.                                                                                                                        |
+| Throttle or steering reversed                               | HIGH and LOW are swapped. Replace every constant with `1023 − value` — not a MIN/MAX swap, which leaves neutral wrong. [Details](pot-identification.md#why-this-matters). |
+| Outputs all scaled wrong, or wander on their own            | Rail sense isn't connected. Send `R?`: a raw A0 value well under 500 that drifts means A0 is floating, and the firmware is running on a hard-coded rail guess.            |
+| Only full-on or full-off, no in-between                     | The controls may be switches, not pots — this approach can't add proportionality. Consider swapping the ESC ([Path A](esc-wiring.md)).                                    |
+| Erratic or jumpy behavior                                   | Missing [common ground](glossary.md#common-ground) between Nano and controller.                                                                                           |
+| **(B)** Neutral drifts as the controller's batteries drain  | The A0 rail-sense wire isn't really on the controller rail, so the [ratiometric scaling](#why-the-rail-sense-wire-matters) is running on a stale default.                 |
+| **(B)** Throttle surges or steps instead of moving smoothly | Filter capacitor missing, disconnected, or far too small — raw PWM is reaching the controller chip. Use ≥1 µF with the series R in place.                                 |
+| **(A)** Digipot runs hot or dies                            | Over-voltage: the controller rail exceeds the chip's max. See the [rating warning](#variant-a-digipot-pin-by-pin-mcp41010).                                               |
+| Car keeps moving after the app disconnects                  | The [failsafe](serial-protocol.md#the-500-ms-failsafe) path isn't reaching neutral — verify the 500 ms timeout in firmware.                                               |
 
 ---
 
