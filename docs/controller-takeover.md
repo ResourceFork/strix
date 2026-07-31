@@ -150,20 +150,39 @@ Two ways to fake a pot, both with ready-to-flash firmware:
 
 |                                                        | **Variant A: digipots**                                                          | **Variant B: PWM synthesis**                                                              |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Extra parts                                            | 2× digipot chip                                                                  | 2 resistors + 2 capacitors                                                                |
+| Extra parts                                            | 2× digipot chip                                                                  | 4 resistors + 4 capacitors                                                                |
 | Cost                                                   | ~$24 on Amazon, or ~$4 + distributor shipping                                    | ~$10, or free from a parts drawer                                                         |
 | Forward-throttle steps _(this build's trigger window)_ | ~80                                                                              | **~290**                                                                                  |
 | …with top speed capped to ⅓                            | ~27                                                                              | **~95**                                                                                   |
-| Tracks the controller's sagging AA rail                | Inherently                                                                       | Via rail sensing, built into the firmware                                                 |
-| Wiring complexity                                      | SPI, 5 wires, chip powered from the controller                                   | 2 filters, 4 wires, nothing powered                                                       |
+| Output ripple                                          | None, by construction                                                            | Needs two cascaded RC stages                                                              |
+| Tracks the controller's sagging AA rail                | Inherently                                                                       | Needs a rail-sense subsystem in firmware                                                  |
+| If the Nano stops driving                              | Wiper holds its last position                                                    | Node decays to 0 V, **past full throttle**                                                |
+| Wiring complexity                                      | SPI, 5 wires, chip powered from the controller                                   | 4 filter stages, 4 wires, nothing powered                                                 |
 | Firmware                                               | [`ControllerTakeover.ino`](../arduino/ControllerTakeover/ControllerTakeover.ino) | [`ControllerTakeoverPwm.ino`](../arduino/ControllerTakeoverPwm/ControllerTakeoverPwm.ino) |
 
-**Resolution matters more than it looks.** Software-capping top speed — which an
-indoor autonomous car with a 60 km/h drivetrain absolutely will — squeezes the
-app's whole −100…100 range into a slice of the physical window, dividing your
-usable step count. The granularity you lose is at the _bottom_ end, where creep
-speeds and obstacle approach live. Nobody needs fine control between 55 and
-58 km/h.
+**Resolution is real, and it was the wrong thing to optimise.** The step counts
+above are correct: software-capping top speed squeezes the app's whole −100…100
+range into a slice of the physical window, and the granularity you lose is at the
+_bottom_ end where creep speeds and obstacle approach live. All true — and it
+stopped mattering the moment this build hit the bench, because **PWM's noise floor
+swamped the resolution it was chosen for.** Ripple and rail-sense jitter moved the
+output by tens of millivolts, far more than the ~1 mV that Variant B's extra steps
+are worth. Winning a resolution argument by 3× while giving up an order of
+magnitude in stability is a bad trade, and this table now shows the three rows
+that carry it: ripple, rail sensing, and the un-driven failure mode.
+
+Two of those became work. Clean output needed a **two-stage** filter, not the
+single RC first drawn here. Rail tracking needed oversampling, averaging and a
+validity check — and the arithmetic bug in that subsystem is what threw a live car
+to full throttle. A digipot needs none of it: it divides the controller's own rail
+inherently and holds position when the Nano goes quiet.
+
+> **If you are building this fresh, buy the digipots.** Variant B is documented,
+> working and cheap, and it is what _this_ car runs — the passives are already
+> soldered and it's two components from finished. But it is the harder path, and
+> the honest reason it was chosen was resolution, which turned out not to be the
+> binding constraint. See the [bring-up log](controller-takeover-bringup.md) for
+> the measurements behind that conclusion.
 
 <details>
 <summary><strong>Why the cheap X9C103S isn't offered as a variant</strong></summary>
@@ -183,8 +202,9 @@ failure class. Fine for a slow car; poor for this one.
 
 </details>
 
-**This build uses Variant B** — the finest control of any option, no special
-chips, and the passives cost less than shipping on the alternatives.
+**This build uses Variant B** — no special chips, and the passives cost less than
+shipping on the alternatives. It works, and the rest of this page documents it as
+built. Read the caveat above first if you still have the choice.
 
 ---
 
@@ -208,15 +228,15 @@ parts — the controller board is never touched.
 Don't know which wire is which? → **[Identify the pots](pot-identification.md)**
 
 ```
-  Nano D9 ──[ R 2.2–4.7k ]──┬── trigger WIPER (board-side connector)
-                            │
-                        [ C 1–2.2µF ]
-                            │
-                           GND
+  Nano D9 ──[ 1k ]──┬──[ 1k ]──┬── trigger WIPER (board-side connector)
+                    │          │
+                 [2.2µF]    [2.2µF]
+                    │          │
+                   GND        GND
 
-  Nano D10 ─── same filter ──── wheel WIPER
-  Controller rail ───────────── A0
-  Controller ground ─────────── GND
+  Nano D10 ─── same two-stage filter ─── wheel WIPER
+  Controller rail ────────────────────── A0
+  Controller ground ──────────────────── GND
 ```
 
 > 📐 **Prefer a picture?** [`docs/diagrams/`](diagrams/README.md) holds a
@@ -224,8 +244,42 @@ Don't know which wire is which? → **[Identify the pots](pot-identification.md)
 > both filters, the rails, and labelled wire ends for each controller
 > connection.
 
-Values are uncritical: **R 1–10 kΩ, C 0.5–10 µF** (bigger C = smoother but
-slower to settle). The resistive element of a sacrificed pot works fine as the R.
+### Use two stages, not one
+
+An earlier version of this page said the values were uncritical — "R 1–10 kΩ,
+C 0.5–10 µF, bigger C is smoother." **That is wrong, and a single stage anywhere
+in that range makes the steering servo hunt.**
+
+A control experiment found it: plug the original pot back in and the servo sits
+perfectly still; swap our emulator back in and it oscillates gently. The PWM duty
+was measured bit-identical across 18 consecutive samples, so nothing electrical
+was moving on the Nano's pin. The difference is that **a mechanical pot has zero
+ripple** and an RC-filtered PWM does not. 4.7 kΩ + 1 µF leaves about **14 mV** of
+15.6 kHz residue. Tiny — but it's _coherent_, and when the controller's ADC
+undersamples a periodic signal the sampled value beats slowly. The servo then
+faithfully follows the beat.
+
+The trap is that **R × C alone doesn't tell you the ripple.** Two filters with
+the same product have the same ripple _and_ the same settling time, so trading R
+against C buys nothing here:
+
+| Filter                        | Ripple                  | Settling  | Output impedance |
+| ----------------------------- | ----------------------- | --------- | ---------------- |
+| 4.7 kΩ + 1 µF, one stage      | 14.2 mV                 | 24 ms     | 4.7 kΩ           |
+| 1 kΩ + 4.7 µF, one stage      | **14.2 mV** — identical | 24 ms     | 1 kΩ             |
+| 4.7 kΩ + 10 µF, one stage     | 1.4 mV                  | 235 ms    | 4.7 kΩ           |
+| **1 kΩ + 2.2 µF, two stages** | **0.14 mV**             | **11 ms** | **1 kΩ**         |
+| 1 kΩ + 4.7 µF, two stages     | 0.03 mV                 | 24 ms     | 1 kΩ             |
+
+Cascading two stages attenuates by the _square_, so ripple falls ~100× while the
+response actually gets **faster** than the original single stage. The 1 kΩ output
+impedance is a bonus: the pot it replaces presented at most ~1.3 kΩ (R/4 at
+midpoint), so this lands where the controller expects rather than 3.6× stiffer.
+
+Verified by ear and by hand on this build: 1 µF → 10 µF on one channel cut the
+wobble noticeably, confirming ripple as the cause before committing to the
+rebuild.
+
 → [Parts and salvage options](parts-and-shopping.md#variant-b-pwm-wiper-synthesis--recommended)
 
 > ⚠️ **D9 and D10 are not arbitrary.** They're the Nano's
@@ -446,6 +500,7 @@ the ground and start slow.
 
 - [Identify the pots](pot-identification.md) — the bench procedure and this build's measurements
 - [Calibration worksheet](controller-takeover-calibration.md) — fill-in checklist
+- [Bring-up log](controller-takeover-bringup.md) — this build's measured values, and the findings that cost time
 - [Parts & shopping](parts-and-shopping.md#path-b-controller-takeover) — controllers, chips, passives
 - [Serial protocol](serial-protocol.md) — the command language, unchanged from Path A
 - Firmware: [`ControllerTakeover.ino`](../arduino/ControllerTakeover/ControllerTakeover.ino) · [`ControllerTakeoverPwm.ino`](../arduino/ControllerTakeoverPwm/ControllerTakeoverPwm.ino)

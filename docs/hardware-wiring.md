@@ -60,6 +60,7 @@ Waterproof cars (Hosim, and most cars sold as "all-terrain") are Path B.
 | **[Path B: controller takeover](controller-takeover.md)**               | Sealed-ESC workaround: how it works, the two variants, build steps            | You're on Path B                            |
 | **[Path B: identify the pots](pot-identification.md)**                  | Multimeter bench procedure to label the controller's pot wires before you cut | You're on Path B, before wiring             |
 | **[Path B: calibration worksheet](controller-takeover-calibration.md)** | Fill-in-the-blanks checklist for measurements and calibration values          | You're on Path B, during the build          |
+| **[Path B: bring-up log](controller-takeover-bringup.md)**              | What this car actually measured, and the findings that cost time              | Anything on Path B is misbehaving           |
 | **[Add-on: sensor wiring](sensor-wiring.md)**                           | Forward-perception array: time-of-flight + ultrasonics, placement and pins    | You want measured obstacle distances        |
 | **[Serial protocol](serial-protocol.md)**                               | The command language the phone and Nano share, and how to drive it by hand    | Testing, debugging, or writing code         |
 | **[Diagrams](diagrams/README.md)**                                      | A Fritzing breadboard diagram of the Path B build, and how to regenerate it   | You want a picture of the breadboard layout |
@@ -68,7 +69,7 @@ Waterproof cars (Hosim, and most cars sold as "all-terrain") are Path B.
 
 **Path A build:** [Parts](parts-and-shopping.md) → [ESC wiring](esc-wiring.md) → [Sensors](sensor-wiring.md) (optional) → [Protocol](serial-protocol.md) for testing
 
-**Path B build:** [Parts](parts-and-shopping.md) → [Takeover overview](controller-takeover.md) → [Identify the pots](pot-identification.md) → [Worksheet](controller-takeover-calibration.md) → [Sensors](sensor-wiring.md) (optional)
+**Path B build:** [Parts](parts-and-shopping.md) → [Takeover overview](controller-takeover.md) → [Identify the pots](pot-identification.md) → [Worksheet](controller-takeover-calibration.md) → [Bring-up log](controller-takeover-bringup.md) → [Sensors](sensor-wiring.md) (optional)
 
 **Just adding sensors to a working car:** [Sensors](sensor-wiring.md) → [Protocol](serial-protocol.md)
 

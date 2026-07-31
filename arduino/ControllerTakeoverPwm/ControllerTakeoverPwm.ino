@@ -56,25 +56,41 @@
   LOW ties the grounds. With the Hosim harness pots that's literally the
   6 pot-connector wires onto the Nano plus four passive parts:
 
-    Nano D9  -> [R ~2.2-4.7k] ->+-> throttle WIPER wire (board-side connector)
-                                |
-                             [C 1-2.2uF]
-                                |
-                               GND
-    Nano D10 -> same RC filter -> steering WIPER wire
+    Nano D9  -> [1k] -+- [1k] -+-> throttle WIPER wire (board-side connector)
+                      |        |
+                  [2.2uF]  [2.2uF]
+                      |        |
+                     GND      GND
+    Nano D10 -> same two-stage filter -> steering WIPER wire
     Controller rail (either pot's HIGH wire/pin, they share the rail) -> A0
     Controller ground (pot LOW wires/pins) -> Nano GND  (COMMON GROUND)
 
-  RC filter: R between the Nano pin and the wiper node, C from the wiper node
-  to ground. At 15.6kHz PWM even a 34Hz corner (4.7k + 1uF) leaves only
-  millivolts of ripple and settles in ~15ms. The element of a sacrificed 5k
-  pot works fine as the R. Values are uncritical within R 1-10k, C 0.5-10uF
-  (bigger C = smoother but slower to settle).
+  TWO stages, not one, and the values are NOT uncritical - an earlier version of
+  this comment said they were, and it was wrong. A single 4.7k + 1uF leaves
+  ~14mV of 15.6kHz residue. That sounds negligible, but it is coherent, and the
+  controller's ADC undersamples it into a slow beat the steering servo visibly
+  follows. Proven by swapping the mechanical pot back in: with the pot the servo
+  is perfectly still, with a single-stage emulator it hunts. Note that R*C alone
+  does NOT set the ripple - 1k + 4.7uF has exactly the same 14mV as 4.7k + 1uF,
+  so trading R against C buys nothing. Cascading two stages attenuates by the
+  square instead: 1k + 2.2uF twice gives ~0.14mV and settles in ~11ms, faster
+  than the single stage it replaces. The 1k output impedance is a bonus, since
+  the pot being replaced presented at most ~1.3k (its track/4 at midpoint).
 
-  !! Bench-test the failure mode before unattended use: if the Nano loses
-  power the wiper wires float/decay toward 0V, which is BELOW the trigger's
-  normal travel window -- verify what the controller transmits in that state
-  (wheels off the ground, unplug the Nano mid-drive and watch).
+  !! THE UN-DRIVEN STATE IS FULL THROTTLE. Ground is the RED wire on this
+  controller, which puts the trigger's FORWARD end at the LOW voltage end (~0.5V
+  of a 3.2V rail). An un-driven wiper decays toward 0V - i.e. PAST full forward.
+  Worse, an unpowered Nano is not high-impedance: its pin protection diodes clamp
+  toward a dead rail and actively hold the node low. So any moment this board is
+  not driving - not booted, unplugged, crashed - the car sees more than full
+  throttle. An earlier version of this note claimed 0V was harmlessly "below the
+  trigger's normal travel window", which was only true under the mistaken
+  assumption that WHITE was the low end.
+  Mitigation, and it is not optional: a ~10k pull-up from each wiper node to the
+  controller's HIGH pin. With the Nano dead that holds the node near 1.4V, close
+  to neutral, instead of 0V; it also caps commandable forward at roughly half
+  throttle, which on a 60km/h car is a feature. Until that resistor is fitted,
+  never power the car before this board is up and its output verified at neutral.
 
   HC-SR04 ultrasonic (5V, front-left + front-right corners):
     Front-left:  TRIG -> D2, ECHO -> D3, VCC -> 5V, GND -> GND

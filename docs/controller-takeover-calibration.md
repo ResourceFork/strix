@@ -27,17 +27,19 @@ The steps are identical for both variants — only the units differ.
 
 Fill these in before you buy or solder. → [How to measure](pot-identification.md#using-your-multimeter)
 
-| Item                               | Value          | Notes                                                                                            |
-| ---------------------------------- | -------------- | ------------------------------------------------------------------------------------------------ |
-| Car model                          | `X15`          | (this build)                                                                                     |
-| Controller part                    | `F12025`       | [Hosim replacement transmitter](parts-and-shopping.md#the-controller-required-for-path-b)        |
-| Trigger pot track (HIGH→LOW)       | `~5.2 kΩ`      | 5k nominal — via wiper-pair sum                                                                  |
-| Wheel pot track (HIGH→LOW)         | `~5.2 kΩ`      | 5k nominal — sum constant at every position                                                      |
-| **Controller supply rail voltage** | `______ V`     | Usually 3×AA = 4.5V. [Powered test](pot-identification.md#step-3-find-high-and-low-powered-test) |
-| **(A)** Digipot part chosen        | `____________` | MCP41010 (10k works — [ratiometric](glossary.md#ratiometric))                                    |
-| **(A)** Digipot max voltage rating | `______ V`     | **Must be ≥ the controller rail**                                                                |
-| **(B)** Filter R per channel       | `______ Ω`     | 2.2–4.7 kΩ; a sacrificed pot's element works                                                     |
-| **(B)** Filter C per channel       | `______ µF`    | 1–2.2 µF                                                                                         |
+| Item                               | Value          | Notes                                                                                                                                   |
+| ---------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Car model                          | `X15`          | (this build)                                                                                                                            |
+| Controller part                    | `F12025`       | [Hosim replacement transmitter](parts-and-shopping.md#the-controller-required-for-path-b)                                               |
+| Trigger pot track (HIGH→LOW)       | `~5.2 kΩ`      | 5k nominal — via wiper-pair sum                                                                                                         |
+| Wheel pot track (HIGH→LOW)         | `~5.2 kΩ`      | 5k nominal — sum constant at every position                                                                                             |
+| **Controller supply rail voltage** | `3.2 V`        | **Not 4.5 V** — measure, don't assume. [Powered test](pot-identification.md#step-3-find-high-and-low-powered-test)                      |
+| Nano Vcc over USB                  | `4.18 V`       | Needed to read A0 counts as volts                                                                                                       |
+| **(A)** Digipot part chosen        | `____________` | MCP41010 (10k works — [ratiometric](glossary.md#ratiometric))                                                                           |
+| **(A)** Digipot max voltage rating | `______ V`     | **Must be ≥ the controller rail**                                                                                                       |
+| **(B)** Filter R per channel       | `1 kΩ ×2`      | Two cascaded stages — [one is not enough](controller-takeover-bringup.md#one-rc-stage-is-not-enough--and-rc-doesnt-tell-you-the-ripple) |
+| **(B)** Filter C per channel       | `2.2 µF ×2`    | 0.14 mV ripple, 11 ms settling                                                                                                          |
+| **(B)** Wiper pull-up to HIGH      | `~10 kΩ`       | Un-driven wiper = past full throttle without it                                                                                         |
 
 > ⚠️ **(A)** If the rail voltage exceeds your digipot's rating, either pick a
 > higher-voltage part or feed that controller from a regulated 4.5–5V source.
@@ -51,10 +53,14 @@ Fill these in before you buy or solder. → [How to measure](pot-identification.
 Record which wire or pad is which. Getting the **wiper** right is the one that
 can't be fixed in software.
 
-| Pot                | HIGH     | WIPER    | LOW      |
-| ------------------ | -------- | -------- | -------- |
-| Trigger (throttle) | `______` | `______` | `______` |
-| Wheel (steering)   | `______` | `______` | `______` |
+| Pot                | HIGH    | WIPER   | LOW   |
+| ------------------ | ------- | ------- | ----- |
+| Trigger (throttle) | `white` | `black` | `red` |
+| Wheel (steering)   | `white` | `black` | `red` |
+
+> ⚠️ **This build's wires are all three opposite to the colour convention** —
+> white is HIGH, red is LOW, and forward is the _low_-voltage end. Verify yours;
+> don't inherit these.
 
 Then map to your variant:
 
@@ -100,25 +106,79 @@ Key consequence: the trigger uses only ~46% of its track, forward-biased — so
 
 ## 4. Bench test — measure the calibration values
 
-Send each command from the app or a 115200-baud serial monitor, tune the constant
-until the behavior matches, then record the value.
+Drive each command, tune the constant until the behavior matches, then record the
+value.
 
-**Throttle (channel 1)** — do NEUTRAL first, it's the only one whose error is
+> ⚠️ **A serial monitor cannot do this.** The firmware disarms after 500 ms of
+> silence, so hand-typed commands expire between keystrokes and nothing appears to
+> work. Use the app, or the bench tool that feeds a keepalive for you:
+>
+> ```bash
+> python3 -m venv /tmp/nanoenv && /tmp/nanoenv/bin/pip install pyserial
+> /tmp/nanoenv/bin/python scripts/nano-bench.py hold C2:492
+> ```
+>
+> `C<ch>:<0..1023>` sets a raw rail fraction directly, bypassing the calibration
+> constants — so you can find each value live instead of re-flashing per guess.
+> `hold` keeps it there until Ctrl-C. Full tool:
+> [`scripts/nano-bench.py`](../scripts/nano-bench.py).
+
+> 💡 **Do steering first.** It cannot run away from you, wheel _angle_ is
+> unambiguous where wheel _speed_ is guesswork, and the servo is a far more
+> sensitive noise detector than the ESC — its deadband hides jitter the servo
+> shows you immediately. Get steering clean and you've validated your wiring,
+> your filter and your rail scaling before throttle ever moves.
+
+**Steering (channel 2)** — start here:
+
+- [ ] `A:1` then `T2:0` → wheels straight, servo **silent and still** → `STR_CENTER = ______`
+- [ ] `T2:100` → full right lock → `STR_RIGHT = ______`
+- [ ] `T2:-100` → full left lock → `STR_LEFT = ______`
+- [ ] Hold at centre for 30 s → no hunting, buzzing or pulsing
+
+> ⚠️ **A servo that won't hold still is telling you about ripple, not
+> calibration.** Don't proceed to throttle until it's quiet. The fastest
+> confirmation is to plug the mechanical pot back in: if _it_ is silent and your
+> emulator isn't, the difference is your filter.
+> [What that cost us](controller-takeover-bringup.md#one-rc-stage-is-not-enough--and-rc-doesnt-tell-you-the-ripple).
+
+**Throttle (channel 1)** — NEUTRAL first; it's the only one whose error is
 dangerous rather than annoying:
 
-- [ ] `A:1` then `T1:0` → car **fully stopped**, no creep → `THR_NEUTRAL = ______`
+- [ ] `A:1` then `T1:0` → car **fully stopped**, no creep, no pulsing → `THR_NEUTRAL = ______`
 - [ ] `T1:100` → desired top forward speed → `THR_MAX = ______`
 - [ ] `T1:-100` → desired top reverse speed → `THR_MIN = ______`
 
-**Steering (channel 2):**
-
-- [ ] `T2:0` → wheels pointing straight → `STR_CENTER = ______`
-- [ ] `T2:100` → full right lock → `STR_RIGHT = ______`
-- [ ] `T2:-100` → full left lock → `STR_LEFT = ______`
+> ⚠️ **Pulses in _both_ directions at rest** means you are centred in the ESC
+> deadband **and** your noise exceeds it. No neutral value fixes that — the noise
+> has to come down. Pulses in one direction only means neutral is genuinely off.
 
 **Parked state:**
 
 - [ ] `A:0` → trigger releases to neutral and wheels re-center
+
+<details>
+<summary><strong>This build's measured values</strong> (worked example)</summary>
+
+| Constant            | Derived from resistance | **Measured**                        |
+| ------------------- | ----------------------- | ----------------------------------- |
+| `THR_MIN` (reverse) | 632                     | **620** — deliberate bring-up clamp |
+| `THR_NEUTRAL`       | 478                     | **560**                             |
+| `THR_MAX` (forward) | 157                     | **480** — deliberate bring-up clamp |
+| `STR_LEFT`          | 103                     | **103**                             |
+| `STR_CENTER`        | 492                     | **492**                             |
+| `STR_RIGHT`         | 1013                    | **1013**                            |
+
+**Steering needed no correction; throttle neutral was 82 counts out.** The pot
+arithmetic wasn't wrong — throttle simply has a second calibration in series that
+steering doesn't: the ESC's own neutral point plus the **FR.TRIM** knob. Derive to
+find the ballpark, measure to find the value.
+
+Throttle is clamped to roughly a fifth of its travel here, which is prudence on a
+60 km/h drivetrain, not a measurement.
+[Full bring-up log](controller-takeover-bringup.md).
+
+</details>
 
 > 💡 **Two tips that save a lot of grief.** You don't have to use the control's
 > full travel — clamping `THR_MAX`/`THR_MIN` lower is how you make a 60 km/h car
@@ -145,6 +205,20 @@ const int STR_RIGHT   = ____;  // full right lock
 
 - [ ] Constants updated and firmware re-flashed
 
+> 💡 `THR_MIN > THR_MAX` is **correct** when forward is the low-voltage end, as it
+> is on this build. Don't tidy them into ascending order — `map()` interpolates
+> inverted endpoints fine, and swapping them silently reverses your throttle.
+
+> ⚠️ **Some Nano clones need the old bootloader to accept an upload** — symptom is
+> `not in sync: resp=0x00`. Add `:cpu=atmega328old` to the FQBN. It affects
+> uploading only and has nothing to do with the sketch's own baud rate, a
+> coincidence that invites the wrong guess:
+>
+> ```bash
+> arduino-cli upload --fqbn arduino:avr:nano:cpu=atmega328old \
+>   -p /dev/cu.usbserial-131220 arduino/ControllerTakeoverPwm
+> ```
+
 ---
 
 ## 6. Final drive test
@@ -158,6 +232,13 @@ Wheels still off the ground.
 - [ ] Disconnect the app briefly → car stops within ~0.5s ([failsafe](serial-protocol.md#the-500-ms-failsafe))
 - [ ] **(B)** Cut power to the Nano mid-drive → note what the controller transmits ([why](controller-takeover.md#failure-mode-to-bench-test))
 - [ ] `A:0` → everything parks at neutral
+
+> ⚠️ **Expect the Nano-power test to fail without the pull-up.** On this build an
+> un-driven wiper decays to ~0 V, which is **past full forward** — and an
+> unpowered Nano isn't neutral, its protection diodes actively hold the node low.
+> The ~10 kΩ wiper-to-HIGH resistor from [section 1](#1-parts-and-measurements) is
+> what turns that into something survivable. Until it's fitted, never power the
+> car before the Nano is up and verified at neutral.
 
 Once every box is checked, put the car on the ground and start slow.
 
