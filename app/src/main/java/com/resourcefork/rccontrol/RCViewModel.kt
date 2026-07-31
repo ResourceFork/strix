@@ -232,9 +232,14 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     fun arm() {
         commandChannel.trySend(Command.Arm)
         _uiState.update { it.copy(isArmed = true) }
+        startDriveKeepAlive()
     }
 
     fun disarm() {
+        stopDriveKeepAlive()
+        // Park the remembered values too, so a later arm() can't resurrect old thrust.
+        lastDriveThrottle = 0
+        lastDriveSteering = 0
         commandChannel.trySend(Command.Disarm)
         _uiState.update { it.copy(isArmed = false) }
     }
@@ -312,6 +317,43 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     // Driving – thrust + steering via joystick input
     // -------------------------------------------------------------------------
 
+    /** Current drive values, re-sent by [startDriveKeepAlive] so a held control keeps meaning. */
+    @Volatile private var lastDriveThrottle = 0
+
+    @Volatile private var lastDriveSteering = 0
+
+    /** In-flight keepalive loop, or null when disarmed. */
+    private var driveKeepAliveJob: Job? = null
+
+    /**
+     * Re-sends the current drive values inside the firmware's failsafe window.
+     *
+     * The firmware parks at neutral *and disarms* if no `A:`/`T` command arrives within
+     * `FAILSAFE_MS` (500 ms), and only those two commands refresh its timer — the distance poll
+     * does not. Joystick input is edge-triggered, so holding the stick perfectly still emits no
+     * events at all. Without this loop, holding a control gives half a second of throttle followed
+     * by a silent disarm, and the app's own `isArmed` goes stale because nothing tells it.
+     *
+     * This is also why bench-measuring the wiper voltage by hand looked dead: any single command
+     * reverted to neutral before you could read the meter.
+     */
+    private fun startDriveKeepAlive() {
+        driveKeepAliveJob?.cancel()
+        driveKeepAliveJob =
+            viewModelScope.launch {
+                while (isActive) {
+                    delay(DRIVE_KEEPALIVE_MS)
+                    if (!_uiState.value.isArmed) break
+                    commandChannel.trySend(Command.Drive(lastDriveThrottle, lastDriveSteering))
+                }
+            }
+    }
+
+    private fun stopDriveKeepAlive() {
+        driveKeepAliveJob?.cancel()
+        driveKeepAliveJob = null
+    }
+
     /**
      * Called by the virtual joystick with normalised axes (-1f … 1f). Y maps to thrust (channel 1,
      * drive ESC) and X to the steering servo (channel 2). No mixing – the chassis has separate
@@ -321,6 +363,8 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
     fun onJoystickInput(xAxis: Float, yAxis: Float) {
         val throttle = gateThrust((yAxis * 100).toInt().coerceIn(-100, 100))
         val steering = (xAxis * 100).toInt().coerceIn(-100, 100)
+        lastDriveThrottle = throttle
+        lastDriveSteering = steering
         commandChannel.trySend(Command.Drive(throttle, steering))
 
         _uiState.update { s -> s.copy(throttle = intArrayOf(throttle, steering)) }
@@ -959,6 +1003,12 @@ class RCViewModel(application: Application) : AndroidViewModel(application) {
 
         /** Distance-sensor poll interval (~5Hz – matches the firmware's sampling cadence). */
         const val DISTANCE_POLL_MS = 200L
+
+        /**
+         * Drive-command repeat interval. Must stay comfortably under the firmware's 500 ms
+         * `FAILSAFE_MS`; 150 ms survives two consecutive missed writes.
+         */
+        const val DRIVE_KEEPALIVE_MS = 150L
 
         /**
          * Breather between continuous-loop iterations (UI settle + avoid hammering the backend).
