@@ -132,9 +132,22 @@ unsigned long lastSensorMs = 0;
 //
 // Trigger: window 1.99k-4.4k of a 5.2k track, rest 2.77k (white-referenced)
 //   => red-referenced fractions ~0.62 / 0.47 / 0.15 of the rail.
-const int THR_MIN = 632;     // full reverse
-const int THR_NEUTRAL = 478; // stopped -- tune this FIRST so the car can't creep
-const int THR_MAX = 157;     // full forward
+//
+// BUT the resistance maths only describes the pot, not the car. Measured on the
+// bench with the wheels up, the ESC's actual neutral is cal ~560, not the ~478
+// the pot's resting resistance predicts. The ESC has its own neutral point and
+// the controller's FR.TRIM knob shifts it again, so the pot numbers locate the
+// window but cannot locate neutral. 478 left the car crawling forward at rest.
+// Neutral is now the empirically found deadband centre.
+//
+// MIN/MAX are deliberately narrow BRING-UP CLAMPS, not the control's real
+// travel. Full forward is somewhere near cal 157 and full reverse near 632; this
+// allows only ~80 counts each way, roughly a fifth of the available throttle.
+// Widen them once neutral has proven stable - on a 60km/h car that is the right
+// order to do it in.
+const int THR_MIN = 620;     // reverse, clamped for bring-up
+const int THR_NEUTRAL = 560; // stopped -- measured, not derived
+const int THR_MAX = 480;     // forward, clamped for bring-up
 // Note MIN > MAX now, and LEFT < RIGHT below. That is correct and deliberate:
 // map() does not clamp, so it interpolates inverted endpoints fine. Do not
 // "tidy" these back into ascending order.
