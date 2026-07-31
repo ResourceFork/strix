@@ -26,6 +26,9 @@
                         each value in mm, -1 = no reading
     R?\n             -- rail sense, replies "R:<inUse>:<rawA0>:<valid>\n"
                         rawA0 low and drifting => A0 is not connected
+    C<ch>:<0..1023>\n -- BENCH ONLY: set a channel's rail fraction directly,
+                        bypassing calibration. Replies "CAL:<ch>:<cal>:<duty>\n".
+                        Use with the wheels off the ground to FIND the constants.
 
   Failsafe: if no command arrives for FAILSAFE_MS, both outputs park at
   neutral (trigger released, wheel centered).
@@ -150,6 +153,18 @@ const unsigned long FAILSAFE_MS = 500;
 // treated as a broken sense wire and the last good value is kept, so a
 // flaky A0 connection degrades gracefully instead of slamming the outputs.
 const unsigned long RAIL_INTERVAL_MS = 100;
+// Reads averaged per sample. Random ADC/rail noise falls as sqrt(N). 32 reads
+// costs about 3.3ms per sample, i.e. ~3% of the time between samples.
+const byte RAIL_OVERSAMPLE = 32;
+// Exponential average weight: new value gets 1/RAIL_SMOOTH. At one sample per
+// RAIL_INTERVAL_MS that is roughly a 6s time constant - slow, deliberately.
+// Battery sag is a minutes-long effect; tracking it quickly gains nothing and
+// lets rail noise straight onto the throttle. Boot is unaffected because
+// sampleRail(true) takes the reading directly rather than easing into it.
+const int RAIL_SMOOTH = 64;
+// Minimum duty change (out of 1024) worth writing to the timer. Suppresses
+// dither from whatever noise survives filtering.
+const int DUTY_HYSTERESIS = 3;
 const int RAIL_MIN_COUNTS = 500;
 const int RAIL_DEFAULT_COUNTS = 920; // ~4.5V rail on a 5.0V Nano, until sensed
 int railCounts = RAIL_DEFAULT_COUNTS;
@@ -220,13 +235,33 @@ void sampleRail(bool force) {
   if (!force && millis() - lastRailMs < RAIL_INTERVAL_MS) return;
   lastRailMs = millis();
 
+  // Oversample. A single read of this rail was measured spreading 56 counts
+  // (~229mV) on a live controller, and because duty is cal*railCounts/1023 that
+  // noise lands directly on the throttle - 69mV of wander with the command held
+  // perfectly still, which the car showed as random forward/reverse pulses.
+  // Averaging N reads cuts random noise by sqrt(N).
   analogRead(RAIL_SENSE_PIN); // throwaway: settle the ADC mux
-  int reading = analogRead(RAIL_SENSE_PIN);
+  unsigned int acc = 0;
+  for (byte i = 0; i < RAIL_OVERSAMPLE; i++) acc += analogRead(RAIL_SENSE_PIN);
+  int reading = acc / RAIL_OVERSAMPLE;
+
   lastRailRaw = reading;
   railValid = (reading >= RAIL_MIN_COUNTS);
   if (reading >= RAIL_MIN_COUNTS) {
-    // Exponential average smooths ADC noise without a sag-tracking lag.
-    railCounts = force ? reading : (railCounts * 3 + reading) / 4;
+    // Heavy exponential average. The thing being tracked is battery sag, which
+    // takes minutes, so a time constant of a second or two costs nothing and
+    // buys a lot of quiet. The old 3:1 filter was far too fast for the job.
+    // The accumulator MUST be long. railCounts * (RAIL_SMOOTH-1) is about
+    // 800 * 63 = 50400, which overflows a signed 16-bit int on AVR and returns
+    // garbage - it silently worked at RAIL_SMOOTH=16 and broke at 64.
+    railCounts =
+        force ? reading
+              : (int)(((long)railCounts * (RAIL_SMOOTH - 1) + reading) / RAIL_SMOOTH);
+    // Belt and braces. railCounts multiplies every output, so a bad value here
+    // is a bad throttle - and that is not theoretical: the overflow above put
+    // this at 1 one sample and 7000 the next, which slammed a live car from full
+    // forward into full reverse. Nothing downstream should have to trust it.
+    railCounts = constrain(railCounts, RAIL_MIN_COUNTS, 1023);
   }
   applyOutputs();
 }
@@ -234,15 +269,88 @@ void sampleRail(bool force) {
 // cal (0..1023 rail fraction) -> duty (0..railCounts). Because railCounts is
 // the measured rail, the synthesized voltage can never exceed the
 // controller's supply, whatever the Nano's own Vcc happens to be.
+//
+// Writes are gated by DUTY_HYSTERESIS: whatever jitter survives the filtering
+// should not be dithered onto the pin. The controller's neutral deadband is
+// narrow enough that a couple of counts of dither is visible as movement, and a
+// stationary command deserves a stationary output.
 void applyOutputs() {
-  OCR1A = (unsigned int)(((unsigned long)constrain(curThrottleCal, 0, 1023) * railCounts) / 1023UL);
-  OCR1B = (unsigned int)(((unsigned long)constrain(curSteeringCal, 0, 1023) * railCounts) / 1023UL);
+  unsigned int t = dutyFor(curThrottleCal);
+  unsigned int s = dutyFor(curSteeringCal);
+  if (abs((int)t - (int)OCR1A) >= DUTY_HYSTERESIS) OCR1A = t;
+  if (abs((int)s - (int)OCR1B) >= DUTY_HYSTERESIS) OCR1B = s;
 }
 
+// Single place where a rail fraction becomes a timer value, so every path gets
+// the same bounds. The final constrain to PWM_TOP is the last line of defence:
+// whatever goes wrong upstream, the pin cannot be told to sit outside the range
+// the timer can represent.
+unsigned int dutyFor(int cal) {
+  unsigned long d =
+      ((unsigned long)constrain(cal, 0, 1023) * (unsigned long)railCounts) / 1023UL;
+  if (d > (unsigned long)PWM_TOP) d = PWM_TOP;
+  return (unsigned int)d;
+}
+
+// Force both outputs to the current targets, ignoring the hysteresis gate. Used
+// where the output must land exactly rather than nearly: neutral, and any fresh
+// command from the operator.
+void applyOutputsNow() {
+  OCR1A = dutyFor(curThrottleCal);
+  OCR1B = dutyFor(curSteeringCal);
+}
+
+// ---- thrust-inverse gate -----------------------------------------------------
+// Slamming the drive ESC from forward straight into reverse at speed can wreck
+// the drivetrain, so a direction flip is only honoured after the car has had a
+// moment at neutral to slow down.
+//
+// The app enforces this too. That was not enough: the app is not the only thing
+// that drives this board. A bench script talking straight to the serial port
+// bypassed the app's gate entirely and threw a live car from full forward into
+// full reverse in one step. An interlock that a direct command can walk around
+// is not an interlock, so it belongs here, at the last choke point before the
+// timer, where every path has to pass through it.
+const unsigned long THRUST_INVERSE_COOLDOWN_MS = 1000;
+// Cal counts either side of neutral still counted as "not driving".
+const int THRUST_NEUTRAL_BAND = 12;
+
+unsigned long lastForwardMs = 0;
+unsigned long lastReverseMs = 0;
+bool haveForward = false;
+bool haveReverse = false;
+
+// Forward is the LOW cal end on this controller, because ground is the red wire,
+// so "below neutral" means forward. Returns the cal that may actually be applied.
+int gateThrottleCal(int cal) {
+  unsigned long now = millis();
+  bool forward = cal < (THR_NEUTRAL - THRUST_NEUTRAL_BAND);
+  bool reverse = cal > (THR_NEUTRAL + THRUST_NEUTRAL_BAND);
+
+  if (forward && haveReverse && now - lastReverseMs < THRUST_INVERSE_COOLDOWN_MS) {
+    return THR_NEUTRAL;
+  }
+  if (reverse && haveForward && now - lastForwardMs < THRUST_INVERSE_COOLDOWN_MS) {
+    return THR_NEUTRAL;
+  }
+  if (forward) {
+    lastForwardMs = now;
+    haveForward = true;
+  }
+  if (reverse) {
+    lastReverseMs = now;
+    haveReverse = true;
+  }
+  return cal;
+}
+
+// A fresh target lands exactly, bypassing the hysteresis gate. Hysteresis exists
+// to stop rail noise dithering the pin, not to round off what the operator asked
+// for - a small deliberate throttle change must not be swallowed.
 void setTargets(int throttleCal, int steeringCal) {
-  curThrottleCal = throttleCal;
+  curThrottleCal = gateThrottleCal(throttleCal);
   curSteeringCal = steeringCal;
-  applyOutputs();
+  applyOutputsNow();
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +473,44 @@ void handleCommand(const String& line) {
       setNeutral();
     }
     Serial.println(armed ? "ARMED" : "DISARMED");
+    return;
+  }
+
+  // C<chan>:<0..1023>  -- BENCH CALIBRATION ONLY.
+  // Sets a channel's rail fraction directly, bypassing the THR_*/STR_* mapping.
+  // This is how you find the constants in the first place: sweep the raw value
+  // with the wheels off the ground, watch the car, and read off the numbers that
+  // land on neutral and each extreme. Without it every guess costs a re-flash.
+  // Still requires arming and still parks on the failsafe, so it is no more
+  // dangerous than a T command - but it is deliberately unclamped, so it CAN
+  // command positions outside the control's real travel.
+  if (line.startsWith("C") && line.length() > 2 && line.charAt(2) == ':') {
+    int channel = line.charAt(1) - '0';
+    int cal = constrain(line.substring(3).toInt(), 0, 1023);
+    lastCommandTime = millis();
+
+    if (!armed) {
+      Serial.println("ERR:NOT_ARMED");
+      return;
+    }
+    if (channel < 1 || channel > 2) {
+      Serial.println("ERR:BAD_CHANNEL");
+      return;
+    }
+
+    if (channel == 1) {
+      setTargets(cal, curSteeringCal);
+    } else {
+      setTargets(curThrottleCal, cal);
+    }
+    // Echo the duty actually applied, so the reply ties the requested fraction
+    // to the PWM the pin is really producing.
+    Serial.print("CAL:");
+    Serial.print(channel);
+    Serial.print(":");
+    Serial.print(cal);
+    Serial.print(":");
+    Serial.println(channel == 1 ? OCR1A : OCR1B);
     return;
   }
 
